@@ -4,8 +4,17 @@ import { useState } from "react";
 const TABS = ["LIVE", "Explore", "Following", "For You"] as const;
 type Tab = (typeof TABS)[number];
 
-export function TopNav() {
+interface TopNavProps {
+  onNavigate?: (tab: string) => void;
+}
+
+export function TopNav({ onNavigate }: TopNavProps = {}) {
   const [activeTab, setActiveTab] = useState<Tab>("For You");
+
+  const handleTabClick = (tab: Tab) => {
+    setActiveTab(tab);
+    onNavigate?.(tab);
+  };
 
   return (
     <header
@@ -27,7 +36,7 @@ export function TopNav() {
             key={tab}
             type="button"
             data-ocid={`topnav.tab.${i + 1}`}
-            onClick={() => setActiveTab(tab)}
+            onClick={() => handleTabClick(tab)}
             className={`relative whitespace-nowrap text-sm font-medium transition-all duration-200 pb-1 ${
               activeTab === tab
                 ? "text-white font-bold"

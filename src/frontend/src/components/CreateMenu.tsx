@@ -4,6 +4,7 @@ import { useEffect } from "react";
 interface CreateMenuProps {
   open: boolean;
   onClose: () => void;
+  onGoLive?: () => void;
 }
 
 const OPTIONS = [
@@ -30,7 +31,7 @@ const OPTIONS = [
   },
 ] as const;
 
-export function CreateMenu({ open, onClose }: CreateMenuProps) {
+export function CreateMenu({ open, onClose, onGoLive }: CreateMenuProps) {
   // Prevent body scroll when open
   useEffect(() => {
     if (open) {
@@ -91,7 +92,12 @@ export function CreateMenu({ open, onClose }: CreateMenuProps) {
               key={label}
               type="button"
               data-ocid={ocid}
-              onClick={onClose}
+              onClick={() => {
+                if (label === "Go Live") {
+                  onGoLive?.();
+                }
+                onClose();
+              }}
               className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl mb-2 transition-all duration-150 active:scale-[0.98] group"
               style={{
                 background: accent

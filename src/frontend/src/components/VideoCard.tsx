@@ -1,11 +1,34 @@
 import { Heart, MessageCircle, Music2, Share2, Sparkles } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
-import type { MockVideo } from "../data/mockVideos";
+import { toast } from "sonner";
+import type { Video } from "../backend.d";
+import { useAuth } from "../context/AuthContext";
+import { OnlineDot } from "./OnlineDot";
 
-function formatCount(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
+// Gradient palette for video placeholders
+const GRADIENTS = [
+  { from: "from-rose-900", to: "to-pink-800" },
+  { from: "from-violet-900", to: "to-purple-800" },
+  { from: "from-blue-900", to: "to-indigo-900" },
+  { from: "from-emerald-900", to: "to-teal-900" },
+  { from: "from-amber-900", to: "to-orange-900" },
+  { from: "from-cyan-900", to: "to-blue-900" },
+];
+
+function getGradient(id: bigint) {
+  const idx = Number(id % BigInt(GRADIENTS.length));
+  return GRADIENTS[idx]!;
+}
+
+function formatCount(n: bigint | number): string {
+  const num = typeof n === "bigint" ? Number(n) : n;
+  if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
+  if (num >= 1_000) return `${(num / 1_000).toFixed(1)}K`;
+  return String(num);
+}
+
+function getInitials(principal: string): string {
+  return principal.slice(0, 2).toUpperCase();
 }
 
 interface HeartBurst {
@@ -15,15 +38,44 @@ interface HeartBurst {
 }
 
 interface VideoCardProps {
-  video: MockVideo;
+  video: Video;
+  isAuthenticated?: boolean;
 }
 
-export function VideoCard({ video }: VideoCardProps) {
+export function VideoCard({ video, isAuthenticated = false }: VideoCardProps) {
+  const { actor } = useAuth();
   const [liked, setLiked] = useState(false);
-  const [likeCount, setLikeCount] = useState(video.likes);
+  const [likeCount, setLikeCount] = useState(Number(video.likeCount));
   const [heartBursts, setHeartBursts] = useState<HeartBurst[]>([]);
   const lastTapRef = useRef<number>(0);
   const burstIdRef = useRef(0);
+
+  const gradient = getGradient(video.id);
+  const creatorPrincipal = video.creator.toString();
+  const creatorShort = creatorPrincipal.split("-")[0] ?? "user";
+
+  const triggerLike = useCallback(
+    async (x: number, y: number) => {
+      const id = burstIdRef.current++;
+      setHeartBursts((prev) => [...prev, { id, x, y }]);
+      setTimeout(() => {
+        setHeartBursts((prev) => prev.filter((h) => h.id !== id));
+      }, 700);
+
+      if (!liked) {
+        setLiked(true);
+        setLikeCount((c) => c + 1);
+        if (isAuthenticated && actor) {
+          try {
+            await actor.likeVideo(video.id);
+          } catch {
+            // silently ignore
+          }
+        }
+      }
+    },
+    [liked, isAuthenticated, actor, video.id],
+  );
 
   const handleDoubleTap = useCallback(
     (e: React.TouchEvent | React.MouseEvent) => {
@@ -31,7 +83,6 @@ export function VideoCard({ video }: VideoCardProps) {
       const timeDiff = now - lastTapRef.current;
 
       if (timeDiff < 300 && timeDiff > 0) {
-        // Double tap detected
         const clientX =
           "touches" in e
             ? (e.changedTouches[0]?.clientX ?? 0)
@@ -41,30 +92,38 @@ export function VideoCard({ video }: VideoCardProps) {
             ? (e.changedTouches[0]?.clientY ?? 0)
             : (e as React.MouseEvent).clientY;
 
-        const id = burstIdRef.current++;
-        setHeartBursts((prev) => [...prev, { id, x: clientX, y: clientY }]);
-
-        if (!liked) {
-          setLiked(true);
-          setLikeCount((c) => c + 1);
-        }
-
-        setTimeout(() => {
-          setHeartBursts((prev) => prev.filter((h) => h.id !== id));
-        }, 700);
+        void triggerLike(clientX, clientY);
       }
 
       lastTapRef.current = now;
     },
-    [liked],
+    [triggerLike],
   );
 
-  const handleLike = (e: React.MouseEvent) => {
+  const handleLike = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    setLiked((prev) => {
-      setLikeCount((c) => (prev ? c - 1 : c + 1));
-      return !prev;
-    });
+    if (!isAuthenticated) {
+      toast.error("Log in to like videos");
+      return;
+    }
+
+    const wasLiked = liked;
+    setLiked((prev) => !prev);
+    setLikeCount((c) => (wasLiked ? c - 1 : c + 1));
+
+    if (actor) {
+      try {
+        if (wasLiked) {
+          await actor.unlikeVideo(video.id);
+        } else {
+          await actor.likeVideo(video.id);
+        }
+      } catch {
+        // rollback
+        setLiked(wasLiked);
+        setLikeCount((c) => (wasLiked ? c + 1 : c - 1));
+      }
+    }
   };
 
   return (
@@ -81,10 +140,10 @@ export function VideoCard({ video }: VideoCardProps) {
     >
       {/* Gradient background video placeholder */}
       <div
-        className={`absolute inset-0 bg-gradient-to-b ${video.gradientFrom} ${video.gradientTo}`}
+        className={`absolute inset-0 bg-gradient-to-b ${gradient.from} ${gradient.to}`}
       />
 
-      {/* Subtle vignette patterns for visual interest */}
+      {/* Subtle vignette patterns */}
       <div className="absolute inset-0 opacity-20">
         <div className="absolute top-1/4 left-1/4 w-64 h-64 rounded-full blur-3xl bg-white/5" />
         <div className="absolute bottom-1/3 right-1/4 w-48 h-48 rounded-full blur-2xl bg-white/5" />
@@ -114,9 +173,9 @@ export function VideoCard({ video }: VideoCardProps) {
 
       {/* Creator info — bottom left */}
       <div className="absolute bottom-24 left-4 right-20 z-10 pointer-events-none">
-        <p className="text-white font-bold text-base mb-1">@{video.username}</p>
+        <p className="text-white font-bold text-base mb-1">@{creatorShort}</p>
         <p className="text-white/90 text-sm leading-snug mb-2 line-clamp-2">
-          {video.caption}
+          {video.caption || video.title}
         </p>
         <div className="flex flex-wrap gap-1 mb-2">
           {video.hashtags.map((tag) => (
@@ -125,13 +184,13 @@ export function VideoCard({ video }: VideoCardProps) {
               className="text-xs font-medium"
               style={{ color: "#ff0050" }}
             >
-              {tag}
+              #{tag}
             </span>
           ))}
         </div>
         <div className="flex items-center gap-1.5">
           <Music2 size={12} className="text-white/70 flex-shrink-0" />
-          <p className="text-white/70 text-xs truncate">{video.music}</p>
+          <p className="text-white/70 text-xs truncate">Original audio</p>
         </div>
       </div>
 
@@ -175,7 +234,7 @@ export function VideoCard({ video }: VideoCardProps) {
             />
           </div>
           <span className="text-white text-xs font-medium">
-            {formatCount(video.comments)}
+            {formatCount(video.commentCount)}
           </span>
         </button>
 
@@ -195,7 +254,7 @@ export function VideoCard({ video }: VideoCardProps) {
             />
           </div>
           <span className="text-white text-xs font-medium">
-            {formatCount(video.shares)}
+            {formatCount(video.shareCount)}
           </span>
         </button>
 
@@ -221,36 +280,27 @@ export function VideoCard({ video }: VideoCardProps) {
 
         {/* Creator profile circle */}
         <div className="flex flex-col items-center gap-1">
-          <div
-            className={`relative w-12 h-12 ${video.isLive ? "live-ring" : ""}`}
-          >
-            <img
-              src={video.avatarUrl}
-              alt={video.username}
-              className={`w-12 h-12 rounded-full object-cover border-2 ${
-                video.isLive ? "border-red-500" : "border-white/30"
-              }`}
-              loading="lazy"
-            />
-            {/* Plus badge on avatar */}
-            {!video.isLive && (
-              <div
-                className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full flex items-center justify-center text-white text-xs font-bold"
-                style={{ background: "#ff0050" }}
-              >
-                +
-              </div>
-            )}
-          </div>
-          {/* LIVE badge */}
-          {video.isLive && (
-            <span
-              className="text-white text-[10px] font-bold px-1.5 py-0.5 rounded-sm tracking-wide"
-              style={{ background: "#ff0050" }}
+          <div className="relative w-12 h-12">
+            <div
+              className="w-12 h-12 rounded-full flex items-center justify-center overflow-hidden border-2 border-white/30"
+              style={{
+                background: "linear-gradient(135deg, #ff0050, #ff6b35)",
+              }}
             >
-              LIVE
-            </span>
-          )}
+              <span className="text-white text-sm font-bold">
+                {getInitials(creatorPrincipal)}
+              </span>
+            </div>
+            {/* Online dot */}
+            <OnlineDot isOnline={false} size={10} />
+          </div>
+          {/* Plus badge on avatar */}
+          <div
+            className="w-5 h-5 rounded-full flex items-center justify-center text-white text-xs font-bold -mt-3 relative z-10"
+            style={{ background: "#ff0050" }}
+          >
+            +
+          </div>
         </div>
       </div>
     </div>

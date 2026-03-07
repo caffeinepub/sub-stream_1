@@ -143,6 +143,27 @@
   }
 }
 
+@keyframes livePulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(1.3);
+  }
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
 /* ─── Meta theme color for mobile browsers ─────────────── */
 @media (prefers-color-scheme: dark) {
   :root {

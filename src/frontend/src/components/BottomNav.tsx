@@ -1,32 +1,45 @@
 import { Home, Mail, Plus, User, Users } from "lucide-react";
-import { useState } from "react";
+
+export type BottomNavScreen = "feed" | "friends" | "inbox" | "profile";
 
 const TABS = [
-  { id: "home", label: "Home", icon: Home, ocid: "bottomnav.home.tab" },
   {
-    id: "friends",
+    id: "feed" as BottomNavScreen,
+    label: "Home",
+    icon: Home,
+    ocid: "bottomnav.home.tab",
+  },
+  {
+    id: "friends" as BottomNavScreen,
     label: "Friends",
     icon: Users,
     ocid: "bottomnav.friends.tab",
   },
-  { id: "inbox", label: "Inbox", icon: Mail, ocid: "bottomnav.inbox.tab" },
   {
-    id: "profile",
+    id: "inbox" as BottomNavScreen,
+    label: "Inbox",
+    icon: Mail,
+    ocid: "bottomnav.inbox.tab",
+  },
+  {
+    id: "profile" as BottomNavScreen,
     label: "Profile",
     icon: User,
     ocid: "bottomnav.profile.tab",
   },
 ] as const;
 
-type TabId = "home" | "friends" | "inbox" | "profile";
-
 interface BottomNavProps {
   onOpenCreate?: () => void;
+  activeScreen?: BottomNavScreen;
+  onNavigate?: (screen: BottomNavScreen) => void;
 }
 
-export function BottomNav({ onOpenCreate }: BottomNavProps) {
-  const [activeTab, setActiveTab] = useState<TabId>("home");
-
+export function BottomNav({
+  onOpenCreate,
+  activeScreen = "feed",
+  onNavigate,
+}: BottomNavProps) {
   return (
     <nav
       className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-around px-2 pb-6 pt-2"
@@ -42,8 +55,8 @@ export function BottomNav({ onOpenCreate }: BottomNavProps) {
         <NavTab
           key={tab.id}
           tab={tab}
-          isActive={activeTab === tab.id}
-          onClick={() => setActiveTab(tab.id)}
+          isActive={activeScreen === tab.id}
+          onClick={() => onNavigate?.(tab.id)}
         />
       ))}
 
@@ -72,8 +85,8 @@ export function BottomNav({ onOpenCreate }: BottomNavProps) {
         <NavTab
           key={tab.id}
           tab={tab}
-          isActive={activeTab === tab.id}
-          onClick={() => setActiveTab(tab.id)}
+          isActive={activeScreen === tab.id}
+          onClick={() => onNavigate?.(tab.id)}
         />
       ))}
     </nav>
@@ -81,7 +94,12 @@ export function BottomNav({ onOpenCreate }: BottomNavProps) {
 }
 
 interface NavTabProps {
-  tab: { id: string; label: string; icon: React.ElementType; ocid: string };
+  tab: {
+    id: BottomNavScreen;
+    label: string;
+    icon: React.ElementType;
+    ocid: string;
+  };
   isActive: boolean;
   onClick: () => void;
 }

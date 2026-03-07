@@ -1,18 +1,30 @@
+import { useQuery } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
-import type { MockVideo } from "../data/mockVideos";
+import type { Video } from "../backend.d";
+import { useAuth } from "../context/AuthContext";
 import { EmptyFeedState } from "./EmptyFeedState";
 import { VideoCard } from "./VideoCard";
 
 interface VideoFeedProps {
-  videos?: MockVideo[];
   onOpenCreate?: () => void;
 }
 
-export function VideoFeed({ videos = [], onOpenCreate }: VideoFeedProps) {
+export function VideoFeed({ onOpenCreate }: VideoFeedProps) {
+  const { actor, isAuthenticated } = useAuth();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const touchStartY = useRef<number | null>(null);
   const touchStartTime = useRef<number>(0);
+
+  const { data: videos = [], isLoading } = useQuery<Video[]>({
+    queryKey: ["allVideos"],
+    queryFn: async () => {
+      if (!actor) return [];
+      return actor.getAllVideos();
+    },
+    enabled: !!actor,
+    staleTime: 60_000,
+  });
 
   const goToIndex = useCallback(
     (newIndex: number) => {
@@ -41,16 +53,13 @@ export function VideoFeed({ videos = [], onOpenCreate }: VideoFeedProps) {
       const deltaY = touchStartY.current - (e.changedTouches[0]?.clientY ?? 0);
       const elapsed = Date.now() - touchStartTime.current;
 
-      // Require either significant movement (>60px) or fast swipe (>25px in <200ms)
       const isFastSwipe = elapsed < 200 && Math.abs(deltaY) > 25;
       const isSignificantSwipe = Math.abs(deltaY) > 60;
 
       if (isFastSwipe || isSignificantSwipe) {
         if (deltaY > 0) {
-          // Swipe up → next video
           goToIndex(currentIndex + 1);
         } else {
-          // Swipe down → previous video
           goToIndex(currentIndex - 1);
         }
       }
@@ -59,6 +68,24 @@ export function VideoFeed({ videos = [], onOpenCreate }: VideoFeedProps) {
     },
     [currentIndex, goToIndex],
   );
+
+  // Loading skeleton
+  if (isLoading) {
+    return (
+      <div
+        data-ocid="feed.loading_state"
+        className="w-full h-screen relative overflow-hidden bg-black flex items-center justify-center"
+      >
+        <div
+          className="w-16 h-16 rounded-full animate-pulse"
+          style={{
+            background:
+              "radial-gradient(circle, rgba(255,0,80,0.4) 0%, rgba(255,0,80,0.05) 100%)",
+          }}
+        />
+      </div>
+    );
+  }
 
   // Empty state — no videos available yet
   if (videos.length === 0) {
@@ -87,7 +114,11 @@ export function VideoFeed({ videos = [], onOpenCreate }: VideoFeedProps) {
         style={{ opacity: isTransitioning ? 0 : 1 }}
       >
         {currentVideo && (
-          <VideoCard key={currentVideo.id} video={currentVideo} />
+          <VideoCard
+            key={currentVideo.id.toString()}
+            video={currentVideo}
+            isAuthenticated={isAuthenticated}
+          />
         )}
       </div>
 
@@ -95,7 +126,7 @@ export function VideoFeed({ videos = [], onOpenCreate }: VideoFeedProps) {
       <div className="absolute right-1.5 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-1.5 pointer-events-none">
         {videos.map((video, i) => (
           <div
-            key={video.id}
+            key={video.id.toString()}
             className="w-1 rounded-full transition-all duration-300"
             style={{
               height: i === currentIndex ? "20px" : "6px",
