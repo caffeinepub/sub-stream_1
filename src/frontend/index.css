@@ -1,0 +1,151 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --radius: 0.75rem;
+
+    /* SUB STREAM — Dark-first palette using OKLCH raw L C H values */
+    --background: 0 0 0;
+    --foreground: 1 0 0;
+    --card: 0.12 0 0;
+    --card-foreground: 1 0 0;
+    --popover: 0.14 0 0;
+    --popover-foreground: 1 0 0;
+    --primary: 0.62 0.22 15;
+    /* #ff0050 in OKLCH ≈ L:0.62 C:0.22 H:15 */
+    --primary-foreground: 1 0 0;
+    --secondary: 0.18 0 0;
+    --secondary-foreground: 1 0 0;
+    --muted: 0.16 0 0;
+    --muted-foreground: 0.6 0 0;
+    --accent: 0.62 0.22 15;
+    --accent-foreground: 1 0 0;
+    --destructive: 0.577 0.245 27.325;
+    --destructive-foreground: 0.985 0 0;
+    --border: 1 0 0 / 8%;
+    --input: 1 0 0 / 12%;
+    --ring: 0.62 0.22 15;
+    --chart-1: 0.62 0.22 15;
+    --chart-2: 0.6 0.118 184.704;
+    --chart-3: 0.398 0.07 227.392;
+    --chart-4: 0.828 0.189 84.429;
+    --chart-5: 0.769 0.188 70.08;
+    --sidebar: 0.12 0 0;
+    --sidebar-foreground: 1 0 0;
+    --sidebar-primary: 0.62 0.22 15;
+    --sidebar-primary-foreground: 1 0 0;
+    --sidebar-accent: 0.18 0 0;
+    --sidebar-accent-foreground: 1 0 0;
+    --sidebar-border: 1 0 0 / 8%;
+    --sidebar-ring: 0.62 0.22 15;
+  }
+
+  /* Always dark — no light mode toggle */
+  html {
+    color-scheme: dark;
+  }
+
+  * {
+    @apply border-border;
+    -webkit-tap-highlight-color: transparent;
+    box-sizing: border-box;
+  }
+
+  html,
+  body {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+    background: #000;
+    color: #fff;
+  }
+
+  #root {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    font-family: "General Sans", system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+@layer utilities {
+  /* Hide scrollbar utility */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+/* ─── Animations ──────────────────────────────────────── */
+
+@keyframes heartBurst {
+  0% {
+    transform: scale(0);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.4);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+.heart-burst {
+  animation: heartBurst 0.6s ease-out forwards;
+  pointer-events: none;
+}
+
+@keyframes liveGlow {
+  0%,
+  100% {
+    box-shadow: 0 0 8px rgba(255, 0, 80, 0.8), 0 0 0 2px rgba(255, 0, 80, 0.6);
+  }
+  50% {
+    box-shadow: 0 0 18px rgba(255, 0, 80, 1), 0 0 0 2px rgba(255, 0, 80, 0.9);
+  }
+}
+
+.live-ring {
+  animation: liveGlow 1.5s ease-in-out infinite;
+  border-radius: 9999px;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+/* ─── Meta theme color for mobile browsers ─────────────── */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+  }
+}
