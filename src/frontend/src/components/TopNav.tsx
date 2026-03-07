@@ -1,7 +1,7 @@
 import { Search } from "lucide-react";
 import { useState } from "react";
 
-const TABS = ["LIVE", "Explore", "Following", "Shop", "For You"] as const;
+const TABS = ["LIVE", "Explore", "Following", "For You"] as const;
 type Tab = (typeof TABS)[number];
 
 export function TopNav() {
