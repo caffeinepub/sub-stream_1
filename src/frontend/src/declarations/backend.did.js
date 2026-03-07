@@ -8,14 +8,214 @@
 
 import { IDL } from '@icp-sdk/core/candid';
 
+export const UserRole = IDL.Variant({
+  'admin' : IDL.Null,
+  'user' : IDL.Null,
+  'guest' : IDL.Null,
+});
+export const Video = IDL.Record({
+  'id' : IDL.Nat,
+  'title' : IDL.Text,
+  'creator' : IDL.Principal,
+  'likeCount' : IDL.Nat,
+  'thumbnailUrl' : IDL.Text,
+  'hashtags' : IDL.Vec(IDL.Text),
+  'createdAt' : IDL.Int,
+  'shareCount' : IDL.Nat,
+  'viewCount' : IDL.Nat,
+  'caption' : IDL.Text,
+  'commentCount' : IDL.Nat,
+  'videoUrl' : IDL.Text,
+});
+export const UserProfile = IDL.Record({
+  'bio' : IDL.Text,
+  'name' : IDL.Text,
+  'isOnline' : IDL.Bool,
+  'email' : IDL.Text,
+  'avatarUrl' : IDL.Text,
+  'followerCount' : IDL.Nat,
+  'followingCount' : IDL.Nat,
+  'lastSeen' : IDL.Int,
+});
+export const Comment = IDL.Record({
+  'id' : IDL.Nat,
+  'likeCount' : IDL.Nat,
+  'createdAt' : IDL.Int,
+  'text' : IDL.Text,
+  'author' : IDL.Principal,
+  'videoId' : IDL.Nat,
+});
+export const User = IDL.Record({
+  'id' : IDL.Principal,
+  'bio' : IDL.Text,
+  'name' : IDL.Text,
+  'isOnline' : IDL.Bool,
+  'email' : IDL.Text,
+  'avatarUrl' : IDL.Text,
+  'followerCount' : IDL.Nat,
+  'passwordHash' : IDL.Text,
+  'followingCount' : IDL.Nat,
+  'lastSeen' : IDL.Int,
+});
+
 export const idlService = IDL.Service({
-  'ping' : IDL.Func([], [IDL.Bool], ['query']),
+  '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
+  'addComment' : IDL.Func([IDL.Nat, IDL.Text], [], []),
+  'addVideo' : IDL.Func(
+      [IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Vec(IDL.Text)],
+      [IDL.Nat],
+      [],
+    ),
+  'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
+  'follow' : IDL.Func([IDL.Principal], [], []),
+  'getAllUserids' : IDL.Func([], [IDL.Vec(IDL.Principal)], ['query']),
+  'getAllVideos' : IDL.Func([], [IDL.Vec(Video)], ['query']),
+  'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
+  'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
+  'getComments' : IDL.Func([IDL.Nat], [IDL.Vec(Comment)], ['query']),
+  'getFollowers' : IDL.Func(
+      [IDL.Principal],
+      [IDL.Vec(IDL.Principal)],
+      ['query'],
+    ),
+  'getFollowing' : IDL.Func(
+      [IDL.Principal],
+      [IDL.Vec(IDL.Principal)],
+      ['query'],
+    ),
+  'getOnlineStatus' : IDL.Func(
+      [IDL.Vec(IDL.Principal)],
+      [IDL.Vec(IDL.Bool)],
+      ['query'],
+    ),
+  'getUser' : IDL.Func([IDL.Principal], [IDL.Opt(User)], ['query']),
+  'getUserByEmail' : IDL.Func([IDL.Text], [IDL.Opt(User)], ['query']),
+  'getUserPresenceStatus' : IDL.Func([], [IDL.Bool], ['query']),
+  'getUserProfile' : IDL.Func(
+      [IDL.Principal],
+      [IDL.Opt(UserProfile)],
+      ['query'],
+    ),
+  'getVideosByCreator' : IDL.Func([IDL.Principal], [IDL.Vec(Video)], ['query']),
+  'incrementViewCount' : IDL.Func([IDL.Nat], [], []),
+  'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+  'isFollowing' : IDL.Func([IDL.Principal], [IDL.Opt(IDL.Bool)], ['query']),
+  'likeVideo' : IDL.Func([IDL.Nat], [], []),
+  'registerUser' : IDL.Func([IDL.Text, IDL.Text, IDL.Text], [], []),
+  'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
+  'unfollow' : IDL.Func([IDL.Principal], [], []),
+  'unlikeVideo' : IDL.Func([IDL.Nat], [], []),
+  'updateOnlineStatus' : IDL.Func([IDL.Bool], [], []),
+  'updateUserProfile' : IDL.Func([IDL.Text, IDL.Text, IDL.Text], [], []),
 });
 
 export const idlInitArgs = [];
 
 export const idlFactory = ({ IDL }) => {
-  return IDL.Service({ 'ping' : IDL.Func([], [IDL.Bool], ['query']) });
+  const UserRole = IDL.Variant({
+    'admin' : IDL.Null,
+    'user' : IDL.Null,
+    'guest' : IDL.Null,
+  });
+  const Video = IDL.Record({
+    'id' : IDL.Nat,
+    'title' : IDL.Text,
+    'creator' : IDL.Principal,
+    'likeCount' : IDL.Nat,
+    'thumbnailUrl' : IDL.Text,
+    'hashtags' : IDL.Vec(IDL.Text),
+    'createdAt' : IDL.Int,
+    'shareCount' : IDL.Nat,
+    'viewCount' : IDL.Nat,
+    'caption' : IDL.Text,
+    'commentCount' : IDL.Nat,
+    'videoUrl' : IDL.Text,
+  });
+  const UserProfile = IDL.Record({
+    'bio' : IDL.Text,
+    'name' : IDL.Text,
+    'isOnline' : IDL.Bool,
+    'email' : IDL.Text,
+    'avatarUrl' : IDL.Text,
+    'followerCount' : IDL.Nat,
+    'followingCount' : IDL.Nat,
+    'lastSeen' : IDL.Int,
+  });
+  const Comment = IDL.Record({
+    'id' : IDL.Nat,
+    'likeCount' : IDL.Nat,
+    'createdAt' : IDL.Int,
+    'text' : IDL.Text,
+    'author' : IDL.Principal,
+    'videoId' : IDL.Nat,
+  });
+  const User = IDL.Record({
+    'id' : IDL.Principal,
+    'bio' : IDL.Text,
+    'name' : IDL.Text,
+    'isOnline' : IDL.Bool,
+    'email' : IDL.Text,
+    'avatarUrl' : IDL.Text,
+    'followerCount' : IDL.Nat,
+    'passwordHash' : IDL.Text,
+    'followingCount' : IDL.Nat,
+    'lastSeen' : IDL.Int,
+  });
+  
+  return IDL.Service({
+    '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
+    'addComment' : IDL.Func([IDL.Nat, IDL.Text], [], []),
+    'addVideo' : IDL.Func(
+        [IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Vec(IDL.Text)],
+        [IDL.Nat],
+        [],
+      ),
+    'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
+    'follow' : IDL.Func([IDL.Principal], [], []),
+    'getAllUserids' : IDL.Func([], [IDL.Vec(IDL.Principal)], ['query']),
+    'getAllVideos' : IDL.Func([], [IDL.Vec(Video)], ['query']),
+    'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
+    'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
+    'getComments' : IDL.Func([IDL.Nat], [IDL.Vec(Comment)], ['query']),
+    'getFollowers' : IDL.Func(
+        [IDL.Principal],
+        [IDL.Vec(IDL.Principal)],
+        ['query'],
+      ),
+    'getFollowing' : IDL.Func(
+        [IDL.Principal],
+        [IDL.Vec(IDL.Principal)],
+        ['query'],
+      ),
+    'getOnlineStatus' : IDL.Func(
+        [IDL.Vec(IDL.Principal)],
+        [IDL.Vec(IDL.Bool)],
+        ['query'],
+      ),
+    'getUser' : IDL.Func([IDL.Principal], [IDL.Opt(User)], ['query']),
+    'getUserByEmail' : IDL.Func([IDL.Text], [IDL.Opt(User)], ['query']),
+    'getUserPresenceStatus' : IDL.Func([], [IDL.Bool], ['query']),
+    'getUserProfile' : IDL.Func(
+        [IDL.Principal],
+        [IDL.Opt(UserProfile)],
+        ['query'],
+      ),
+    'getVideosByCreator' : IDL.Func(
+        [IDL.Principal],
+        [IDL.Vec(Video)],
+        ['query'],
+      ),
+    'incrementViewCount' : IDL.Func([IDL.Nat], [], []),
+    'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+    'isFollowing' : IDL.Func([IDL.Principal], [IDL.Opt(IDL.Bool)], ['query']),
+    'likeVideo' : IDL.Func([IDL.Nat], [], []),
+    'registerUser' : IDL.Func([IDL.Text, IDL.Text, IDL.Text], [], []),
+    'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
+    'unfollow' : IDL.Func([IDL.Principal], [], []),
+    'unlikeVideo' : IDL.Func([IDL.Nat], [], []),
+    'updateOnlineStatus' : IDL.Func([IDL.Bool], [], []),
+    'updateUserProfile' : IDL.Func([IDL.Text, IDL.Text, IDL.Text], [], []),
+  });
 };
 
 export const init = ({ IDL }) => { return []; };

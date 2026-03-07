@@ -1,8 +1,14 @@
 import { useCallback, useRef, useState } from "react";
-import { mockVideos } from "../data/mockVideos";
+import type { MockVideo } from "../data/mockVideos";
+import { EmptyFeedState } from "./EmptyFeedState";
 import { VideoCard } from "./VideoCard";
 
-export function VideoFeed() {
+interface VideoFeedProps {
+  videos?: MockVideo[];
+  onOpenCreate?: () => void;
+}
+
+export function VideoFeed({ videos = [], onOpenCreate }: VideoFeedProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const touchStartY = useRef<number | null>(null);
@@ -11,7 +17,7 @@ export function VideoFeed() {
   const goToIndex = useCallback(
     (newIndex: number) => {
       if (isTransitioning) return;
-      if (newIndex < 0 || newIndex >= mockVideos.length) return;
+      if (newIndex < 0 || newIndex >= videos.length) return;
 
       setIsTransitioning(true);
       setCurrentIndex(newIndex);
@@ -20,7 +26,7 @@ export function VideoFeed() {
         setIsTransitioning(false);
       }, 350);
     },
-    [isTransitioning],
+    [isTransitioning, videos.length],
   );
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
@@ -54,7 +60,19 @@ export function VideoFeed() {
     [currentIndex, goToIndex],
   );
 
-  const currentVideo = mockVideos[currentIndex];
+  // Empty state — no videos available yet
+  if (videos.length === 0) {
+    return (
+      <div
+        data-ocid="feed.canvas_target"
+        className="w-full h-screen relative overflow-hidden bg-black"
+      >
+        <EmptyFeedState onUpload={onOpenCreate ?? (() => {})} />
+      </div>
+    );
+  }
+
+  const currentVideo = videos[currentIndex];
 
   return (
     <div
@@ -75,7 +93,7 @@ export function VideoFeed() {
 
       {/* Progress dots indicator */}
       <div className="absolute right-1.5 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-1.5 pointer-events-none">
-        {mockVideos.map((video, i) => (
+        {videos.map((video, i) => (
           <div
             key={video.id}
             className="w-1 rounded-full transition-all duration-300"

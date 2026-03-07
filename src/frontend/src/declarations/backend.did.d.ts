@@ -10,7 +10,86 @@ import type { ActorMethod } from '@icp-sdk/core/agent';
 import type { IDL } from '@icp-sdk/core/candid';
 import type { Principal } from '@icp-sdk/core/principal';
 
-export interface _SERVICE { 'ping' : ActorMethod<[], boolean> }
+export interface Comment {
+  'id' : bigint,
+  'likeCount' : bigint,
+  'createdAt' : bigint,
+  'text' : string,
+  'author' : Principal,
+  'videoId' : bigint,
+}
+export interface User {
+  'id' : Principal,
+  'bio' : string,
+  'name' : string,
+  'isOnline' : boolean,
+  'email' : string,
+  'avatarUrl' : string,
+  'followerCount' : bigint,
+  'passwordHash' : string,
+  'followingCount' : bigint,
+  'lastSeen' : bigint,
+}
+export interface UserProfile {
+  'bio' : string,
+  'name' : string,
+  'isOnline' : boolean,
+  'email' : string,
+  'avatarUrl' : string,
+  'followerCount' : bigint,
+  'followingCount' : bigint,
+  'lastSeen' : bigint,
+}
+export type UserRole = { 'admin' : null } |
+  { 'user' : null } |
+  { 'guest' : null };
+export interface Video {
+  'id' : bigint,
+  'title' : string,
+  'creator' : Principal,
+  'likeCount' : bigint,
+  'thumbnailUrl' : string,
+  'hashtags' : Array<string>,
+  'createdAt' : bigint,
+  'shareCount' : bigint,
+  'viewCount' : bigint,
+  'caption' : string,
+  'commentCount' : bigint,
+  'videoUrl' : string,
+}
+export interface _SERVICE {
+  '_initializeAccessControlWithSecret' : ActorMethod<[string], undefined>,
+  'addComment' : ActorMethod<[bigint, string], undefined>,
+  'addVideo' : ActorMethod<
+    [string, string, string, string, Array<string>],
+    bigint
+  >,
+  'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
+  'follow' : ActorMethod<[Principal], undefined>,
+  'getAllUserids' : ActorMethod<[], Array<Principal>>,
+  'getAllVideos' : ActorMethod<[], Array<Video>>,
+  'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,
+  'getCallerUserRole' : ActorMethod<[], UserRole>,
+  'getComments' : ActorMethod<[bigint], Array<Comment>>,
+  'getFollowers' : ActorMethod<[Principal], Array<Principal>>,
+  'getFollowing' : ActorMethod<[Principal], Array<Principal>>,
+  'getOnlineStatus' : ActorMethod<[Array<Principal>], Array<boolean>>,
+  'getUser' : ActorMethod<[Principal], [] | [User]>,
+  'getUserByEmail' : ActorMethod<[string], [] | [User]>,
+  'getUserPresenceStatus' : ActorMethod<[], boolean>,
+  'getUserProfile' : ActorMethod<[Principal], [] | [UserProfile]>,
+  'getVideosByCreator' : ActorMethod<[Principal], Array<Video>>,
+  'incrementViewCount' : ActorMethod<[bigint], undefined>,
+  'isCallerAdmin' : ActorMethod<[], boolean>,
+  'isFollowing' : ActorMethod<[Principal], [] | [boolean]>,
+  'likeVideo' : ActorMethod<[bigint], undefined>,
+  'registerUser' : ActorMethod<[string, string, string], undefined>,
+  'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
+  'unfollow' : ActorMethod<[Principal], undefined>,
+  'unlikeVideo' : ActorMethod<[bigint], undefined>,
+  'updateOnlineStatus' : ActorMethod<[boolean], undefined>,
+  'updateUserProfile' : ActorMethod<[string, string, string], undefined>,
+}
 export declare const idlService: IDL.ServiceClass;
 export declare const idlInitArgs: IDL.Type[];
 export declare const idlFactory: IDL.InterfaceFactory;
