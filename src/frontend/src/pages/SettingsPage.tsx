@@ -1,6 +1,8 @@
-import { ArrowLeft, ChevronRight, LogOut, User } from "lucide-react";
+import { ArrowLeft, ChevronRight, LogOut, RefreshCw, User } from "lucide-react";
 import { motion } from "motion/react";
+import { useState } from "react";
 import { useAuth } from "../context/AuthContext";
+import { getDisplayName, getUsername } from "../lib/userFormat";
 
 interface SettingsPageProps {
   onBack: () => void;
@@ -8,9 +10,12 @@ interface SettingsPageProps {
 }
 
 export function SettingsPage({ onBack, onLogout }: SettingsPageProps) {
-  const { userProfile } = useAuth();
+  const { userProfile, clearAllSessions } = useAuth();
+  const [confirmReset, setConfirmReset] = useState(false);
 
-  const displayName = userProfile?.name || "Anonymous";
+  const rawName = userProfile?.name || "";
+  const displayName = getDisplayName(rawName) || "Anonymous";
+  const username = getUsername(rawName);
   const email = userProfile?.email || "";
 
   return (
@@ -64,7 +69,7 @@ export function SettingsPage({ onBack, onLogout }: SettingsPageProps) {
             border: "1px solid rgba(255,255,255,0.07)",
           }}
         >
-          {/* Username row */}
+          {/* Display Name row */}
           <div
             className="flex items-center gap-3 px-4 py-4 border-b"
             style={{ borderColor: "rgba(255,255,255,0.07)" }}
@@ -76,13 +81,43 @@ export function SettingsPage({ onBack, onLogout }: SettingsPageProps) {
               <User size={18} style={{ color: "#ff0050" }} />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-white/50 text-xs mb-0.5">Username</p>
-              <p className="text-white font-medium text-sm truncate">
+              <p className="text-white/50 text-xs mb-0.5">Display Name</p>
+              <p
+                className="text-white font-bold text-sm truncate tracking-wide"
+                style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}
+              >
                 {displayName}
               </p>
             </div>
             <ChevronRight size={16} className="text-white/20 flex-shrink-0" />
           </div>
+
+          {/* @Username row */}
+          {username && (
+            <div
+              className="flex items-center gap-3 px-4 py-4 border-b"
+              style={{ borderColor: "rgba(255,255,255,0.07)" }}
+            >
+              <div
+                className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
+                style={{ background: "rgba(255,255,255,0.06)" }}
+              >
+                <span
+                  className="font-bold text-base"
+                  style={{ color: "rgba(255,255,255,0.5)" }}
+                >
+                  @
+                </span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-white/50 text-xs mb-0.5">@Username</p>
+                <p className="text-white/80 font-medium text-sm truncate">
+                  @{username}
+                </p>
+              </div>
+              <ChevronRight size={16} className="text-white/20 flex-shrink-0" />
+            </div>
+          )}
 
           {/* Email row */}
           {email && (
@@ -130,7 +165,7 @@ export function SettingsPage({ onBack, onLogout }: SettingsPageProps) {
           data-ocid="settings.logout_button"
           onClick={onLogout}
           whileTap={{ scale: 0.97 }}
-          className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl font-semibold text-sm transition-all duration-200"
+          className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl font-semibold text-sm transition-all duration-200 mb-3"
           style={{
             background: "rgba(255, 0, 80, 0.1)",
             border: "1px solid rgba(255, 0, 80, 0.25)",
@@ -140,6 +175,69 @@ export function SettingsPage({ onBack, onLogout }: SettingsPageProps) {
           <LogOut size={18} />
           Log Out
         </motion.button>
+
+        {/* Clear All Sessions button */}
+        {!confirmReset ? (
+          <motion.button
+            type="button"
+            data-ocid="settings.clear_sessions_button"
+            onClick={() => setConfirmReset(true)}
+            whileTap={{ scale: 0.97 }}
+            className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl font-semibold text-sm transition-all duration-200"
+            style={{
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(255,255,255,0.08)",
+              color: "rgba(255,255,255,0.4)",
+            }}
+          >
+            <RefreshCw size={16} />
+            Clear All Sessions &amp; Reset App
+          </motion.button>
+        ) : (
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-2xl overflow-hidden"
+            style={{
+              background: "rgba(255,60,0,0.08)",
+              border: "1px solid rgba(255,60,0,0.25)",
+            }}
+          >
+            <p className="text-white/60 text-xs text-center px-4 pt-4 pb-2">
+              This will sign you out and clear all local data. You will need to
+              log in again.
+            </p>
+            <div
+              className="flex border-t"
+              style={{ borderColor: "rgba(255,255,255,0.07)" }}
+            >
+              <button
+                type="button"
+                data-ocid="settings.reset_cancel_button"
+                onClick={() => setConfirmReset(false)}
+                className="flex-1 py-3 text-sm font-medium border-r"
+                style={{
+                  color: "rgba(255,255,255,0.5)",
+                  borderColor: "rgba(255,255,255,0.07)",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-ocid="settings.reset_confirm_button"
+                onClick={() => {
+                  clearAllSessions();
+                  onLogout();
+                }}
+                className="flex-1 py-3 text-sm font-semibold"
+                style={{ color: "#ff3c00" }}
+              >
+                Reset &amp; Sign Out
+              </button>
+            </div>
+          </motion.div>
+        )}
 
         <p className="text-white/15 text-xs text-center mt-6">
           © {new Date().getFullYear()}.{" "}

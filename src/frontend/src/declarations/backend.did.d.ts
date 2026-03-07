@@ -18,6 +18,26 @@ export interface Comment {
   'author' : Principal,
   'videoId' : bigint,
 }
+export type ExternalBlob = Uint8Array;
+export interface FileMetadata {
+  'id' : bigint,
+  'creator' : Principal,
+  'contentType' : string,
+  'externalBlob' : ExternalBlob,
+  'fileName' : string,
+  'fileSize' : bigint,
+  'uploadedAt' : bigint,
+}
+export interface Story {
+  'id' : bigint,
+  'creator' : Principal,
+  'expiresAt' : bigint,
+  'createdAt' : bigint,
+  'mediaUrl' : string,
+  'textOverlay' : string,
+  'mediaType' : string,
+  'viewerCount' : bigint,
+}
 export interface User {
   'id' : Principal,
   'bio' : string,
@@ -57,38 +77,80 @@ export interface Video {
   'commentCount' : bigint,
   'videoUrl' : string,
 }
+export interface _CaffeineStorageCreateCertificateResult {
+  'method' : string,
+  'blob_hash' : string,
+}
+export interface _CaffeineStorageRefillInformation {
+  'proposed_top_up_amount' : [] | [bigint],
+}
+export interface _CaffeineStorageRefillResult {
+  'success' : [] | [boolean],
+  'topped_up_amount' : [] | [bigint],
+}
 export interface _SERVICE {
+  '_caffeineStorageBlobIsLive' : ActorMethod<[Uint8Array], boolean>,
+  '_caffeineStorageBlobsToDelete' : ActorMethod<[], Array<Uint8Array>>,
+  '_caffeineStorageConfirmBlobDeletion' : ActorMethod<
+    [Array<Uint8Array>],
+    undefined
+  >,
+  '_caffeineStorageCreateCertificate' : ActorMethod<
+    [string],
+    _CaffeineStorageCreateCertificateResult
+  >,
+  '_caffeineStorageRefillCashier' : ActorMethod<
+    [[] | [_CaffeineStorageRefillInformation]],
+    _CaffeineStorageRefillResult
+  >,
+  '_caffeineStorageUpdateGatewayPrincipals' : ActorMethod<[], undefined>,
   '_initializeAccessControlWithSecret' : ActorMethod<[string], undefined>,
   'addComment' : ActorMethod<[bigint, string], undefined>,
+  'addStory' : ActorMethod<[string, string, string], bigint>,
   'addVideo' : ActorMethod<
     [string, string, string, string, Array<string>],
     bigint
   >,
   'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
+  'deleteStory' : ActorMethod<[bigint], undefined>,
   'follow' : ActorMethod<[Principal], undefined>,
+  'getActiveStories' : ActorMethod<[], Array<Story>>,
+  'getAllFiles' : ActorMethod<[], Array<FileMetadata>>,
   'getAllUserids' : ActorMethod<[], Array<Principal>>,
   'getAllVideos' : ActorMethod<[], Array<Video>>,
   'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,
   'getCallerUserRole' : ActorMethod<[], UserRole>,
   'getComments' : ActorMethod<[bigint], Array<Comment>>,
+  'getFileById' : ActorMethod<[bigint], [] | [FileMetadata]>,
+  'getFilesByCreator' : ActorMethod<[Principal], Array<FileMetadata>>,
   'getFollowers' : ActorMethod<[Principal], Array<Principal>>,
   'getFollowing' : ActorMethod<[Principal], Array<Principal>>,
+  'getMyStories' : ActorMethod<[], Array<Story>>,
   'getOnlineStatus' : ActorMethod<[Array<Principal>], Array<boolean>>,
+  'getStoriesByUser' : ActorMethod<[Principal], Array<Story>>,
+  'getStoryViewCount' : ActorMethod<[bigint], bigint>,
   'getUser' : ActorMethod<[Principal], [] | [User]>,
   'getUserByEmail' : ActorMethod<[string], [] | [User]>,
   'getUserPresenceStatus' : ActorMethod<[], boolean>,
   'getUserProfile' : ActorMethod<[Principal], [] | [UserProfile]>,
+  'getUsersWithActiveStories' : ActorMethod<[], Array<Principal>>,
   'getVideosByCreator' : ActorMethod<[Principal], Array<Video>>,
+  'hasViewedStory' : ActorMethod<[bigint], boolean>,
   'incrementViewCount' : ActorMethod<[bigint], undefined>,
   'isCallerAdmin' : ActorMethod<[], boolean>,
   'isFollowing' : ActorMethod<[Principal], [] | [boolean]>,
   'likeVideo' : ActorMethod<[bigint], undefined>,
+  'markStoryViewed' : ActorMethod<[bigint], undefined>,
   'registerUser' : ActorMethod<[string, string, string], undefined>,
   'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
   'unfollow' : ActorMethod<[Principal], undefined>,
   'unlikeVideo' : ActorMethod<[bigint], undefined>,
   'updateOnlineStatus' : ActorMethod<[boolean], undefined>,
   'updateUserProfile' : ActorMethod<[string, string, string], undefined>,
+  'uploadFile' : ActorMethod<
+    [string, string, bigint, ExternalBlob],
+    FileMetadata
+  >,
 }
 export declare const idlService: IDL.ServiceClass;
 export declare const idlInitArgs: IDL.Type[];

@@ -3,6 +3,7 @@ import { motion } from "motion/react";
 import { useId, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
+import { sanitizeUsername } from "../lib/userFormat";
 
 interface UsernameSetupPageProps {
   onLogout: () => void;
@@ -17,39 +18,59 @@ function validateUsername(value: string): string | null {
   return null;
 }
 
+function validateDisplayName(value: string): string | null {
+  if (!value.trim()) return "Display name is required.";
+  return null;
+}
+
 export function UsernameSetupPage({ onLogout }: UsernameSetupPageProps) {
   const { setUsernameOnBackend } = useAuth();
-  const inputId = useId();
+  const displayNameId = useId();
+  const usernameId = useId();
 
+  const [displayName, setDisplayName] = useState("");
   const [username, setUsername] = useState("");
-  const [touched, setTouched] = useState(false);
+  const [displayNameTouched, setDisplayNameTouched] = useState(false);
+  const [usernameTouched, setUsernameTouched] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  const validationError = username ? validateUsername(username) : null;
-  const showError = touched && !!validationError;
-  const isValid = username.length > 0 && validationError === null;
+  const displayNameError = displayName
+    ? validateDisplayName(displayName)
+    : null;
+  const usernameError = username ? validateUsername(username) : null;
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Strip spaces immediately as the user types
-    setUsername(e.target.value.replace(/\s/g, ""));
+  const showDisplayNameError = displayNameTouched && !!displayNameError;
+  const showUsernameError = usernameTouched && !!usernameError;
+
+  const isDisplayNameValid = displayName.trim().length > 0 && !displayNameError;
+  const isUsernameValid = username.length > 0 && !usernameError;
+  const isFormValid = isDisplayNameValid && isUsernameValid;
+
+  const handleDisplayNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Auto-uppercase as user types
+    setDisplayName(e.target.value.toUpperCase());
   };
 
-  const handleBlur = () => setTouched(true);
+  const handleUsernameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Sanitize as user types: strip spaces, keep valid chars
+    setUsername(sanitizeUsername(e.target.value));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setTouched(true);
-    if (!isValid || isLoading) return;
+    setDisplayNameTouched(true);
+    setUsernameTouched(true);
+    if (!isFormValid || isLoading) return;
 
     setIsLoading(true);
     try {
-      await setUsernameOnBackend(username.trim());
+      await setUsernameOnBackend(displayName.trim(), username.trim());
       // needsUsername will flip to false in context → App routes to feed automatically
     } catch (err) {
       toast.error(
         err instanceof Error
           ? err.message
-          : "Failed to save username. Please try again.",
+          : "Failed to save profile. Please try again.",
       );
     } finally {
       setIsLoading(false);
@@ -135,10 +156,10 @@ export function UsernameSetupPage({ onLogout }: UsernameSetupPageProps) {
           >
             Choose your @username to join the SUB STREAM community.
           </h2>
-          <p className="text-white/40 text-sm">You can't change this later.</p>
+          <p className="text-white/40 text-sm">Set up your public identity.</p>
         </motion.div>
 
-        {/* Username input form */}
+        {/* Form */}
         <motion.form
           onSubmit={handleSubmit}
           className="space-y-4"
@@ -147,19 +168,102 @@ export function UsernameSetupPage({ onLogout }: UsernameSetupPageProps) {
           transition={{ duration: 0.4, delay: 0.2 }}
           noValidate
         >
-          {/* Input with @ prefix */}
+          {/* Display Name input */}
           <div className="space-y-1.5">
             <label
-              htmlFor={inputId}
+              htmlFor={displayNameId}
               className="block text-white/70 text-xs font-medium tracking-wide uppercase"
             >
-              @username
+              Display Name
             </label>
             <div
               className="flex items-center h-12 rounded-xl overflow-hidden"
               style={{
                 background: "rgba(255,255,255,0.05)",
-                border: `1px solid ${showError ? "rgba(255,0,80,0.5)" : isValid ? "rgba(255,0,80,0.3)" : "rgba(255,255,255,0.10)"}`,
+                border: `1px solid ${
+                  showDisplayNameError
+                    ? "rgba(255,0,80,0.5)"
+                    : isDisplayNameValid
+                      ? "rgba(255,0,80,0.3)"
+                      : "rgba(255,255,255,0.10)"
+                }`,
+                transition: "border-color 0.2s",
+              }}
+            >
+              <input
+                id={displayNameId}
+                data-ocid="username_setup.display_name_input"
+                type="text"
+                autoComplete="name"
+                autoCapitalize="characters"
+                autoCorrect="off"
+                spellCheck={false}
+                placeholder="ONE VIBZ"
+                value={displayName}
+                onChange={handleDisplayNameChange}
+                onBlur={() => setDisplayNameTouched(true)}
+                maxLength={60}
+                className="flex-1 h-full bg-transparent text-white placeholder:text-white/25 outline-none px-4"
+                style={{
+                  fontSize: "16px",
+                  fontFamily: "'Bricolage Grotesque', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.02em",
+                }}
+                aria-describedby={
+                  showDisplayNameError ? `${displayNameId}-error` : undefined
+                }
+                aria-invalid={showDisplayNameError}
+              />
+            </div>
+
+            {/* Display Name validation */}
+            <motion.div
+              animate={{
+                height: showDisplayNameError ? "auto" : 0,
+                opacity: showDisplayNameError ? 1 : 0,
+              }}
+              transition={{ duration: 0.18 }}
+              className="overflow-hidden"
+            >
+              {showDisplayNameError && (
+                <p
+                  id={`${displayNameId}-error`}
+                  className="text-xs pt-1"
+                  style={{ color: "#ff0050" }}
+                  role="alert"
+                >
+                  {displayNameError}
+                </p>
+              )}
+            </motion.div>
+
+            {!showDisplayNameError && (
+              <p className="text-white/25 text-xs pt-0.5">
+                Spaces and emojis allowed · auto-uppercased
+              </p>
+            )}
+          </div>
+
+          {/* Username input with @ prefix */}
+          <div className="space-y-1.5">
+            <label
+              htmlFor={usernameId}
+              className="block text-white/70 text-xs font-medium tracking-wide uppercase"
+            >
+              @Username
+            </label>
+            <div
+              className="flex items-center h-12 rounded-xl overflow-hidden"
+              style={{
+                background: "rgba(255,255,255,0.05)",
+                border: `1px solid ${
+                  showUsernameError
+                    ? "rgba(255,0,80,0.5)"
+                    : isUsernameValid
+                      ? "rgba(255,0,80,0.3)"
+                      : "rgba(255,255,255,0.10)"
+                }`,
                 transition: "border-color 0.2s",
               }}
             >
@@ -170,7 +274,7 @@ export function UsernameSetupPage({ onLogout }: UsernameSetupPageProps) {
                 @
               </span>
               <input
-                id={inputId}
+                id={usernameId}
                 data-ocid="username_setup.input"
                 type="text"
                 autoComplete="username"
@@ -179,40 +283,42 @@ export function UsernameSetupPage({ onLogout }: UsernameSetupPageProps) {
                 spellCheck={false}
                 placeholder="your_handle"
                 value={username}
-                onChange={handleChange}
-                onBlur={handleBlur}
+                onChange={handleUsernameChange}
+                onBlur={() => setUsernameTouched(true)}
                 maxLength={40}
                 className="flex-1 h-full bg-transparent text-white placeholder:text-white/25 outline-none pr-4"
                 style={{ fontSize: "16px" }}
-                aria-describedby={showError ? `${inputId}-error` : undefined}
-                aria-invalid={showError}
+                aria-describedby={
+                  showUsernameError ? `${usernameId}-error` : undefined
+                }
+                aria-invalid={showUsernameError}
               />
             </div>
 
-            {/* Inline validation message */}
+            {/* Username validation message */}
             <motion.div
               animate={{
-                height: showError ? "auto" : 0,
-                opacity: showError ? 1 : 0,
+                height: showUsernameError ? "auto" : 0,
+                opacity: showUsernameError ? 1 : 0,
               }}
               transition={{ duration: 0.18 }}
               className="overflow-hidden"
             >
-              {showError && (
+              {showUsernameError && (
                 <p
-                  id={`${inputId}-error`}
+                  id={`${usernameId}-error`}
                   data-ocid="username_setup.error_state"
                   className="text-xs pt-1"
                   style={{ color: "#ff0050" }}
                   role="alert"
                 >
-                  {validationError}
+                  {usernameError}
                 </p>
               )}
             </motion.div>
 
             {/* Requirements hint */}
-            {!showError && (
+            {!showUsernameError && (
               <p className="text-white/25 text-xs pt-0.5">
                 Min. 3 characters · letters, numbers, underscores
               </p>
@@ -223,12 +329,12 @@ export function UsernameSetupPage({ onLogout }: UsernameSetupPageProps) {
           <button
             type="submit"
             data-ocid="username_setup.submit_button"
-            disabled={!isValid || isLoading}
+            disabled={!isFormValid || isLoading}
             className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-semibold text-white text-sm transition-all duration-200 active:scale-[0.97] disabled:opacity-50 disabled:pointer-events-none mt-2"
             style={{
               background: "linear-gradient(135deg, #ff0050 0%, #ff3366 100%)",
               boxShadow:
-                isValid && !isLoading
+                isFormValid && !isLoading
                   ? "0 8px 32px rgba(255,0,80,0.4), inset 0 1px 0 rgba(255,255,255,0.15)"
                   : "none",
             }}

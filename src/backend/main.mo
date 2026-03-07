@@ -7,10 +7,19 @@ import Time "mo:core/Time";
 import Nat "mo:core/Nat";
 import Iter "mo:core/Iter";
 import Text "mo:core/Text";
+import Migration "migration";
 import MixinAuthorization "authorization/MixinAuthorization";
+import Storage "blob-storage/Storage";
+import MixinStorage "blob-storage/Mixin";
 import AccessControl "authorization/access-control";
 
+// Modular data migration using with-clause
+(with migration = Migration.run)
 actor {
+  // Storage
+  include MixinStorage();
+
+  // Access Control
   let accessControlState = AccessControl.initState();
   include MixinAuthorization(accessControlState);
 
@@ -56,6 +65,17 @@ actor {
     createdAt : Int;
   };
 
+  // FileMetadata Type
+  public type FileMetadata = {
+    id : Nat;
+    creator : Principal;
+    fileName : Text;
+    contentType : Text;
+    fileSize : Nat;
+    externalBlob : Storage.ExternalBlob;
+    uploadedAt : Int;
+  };
+
   // Comment Type
   public type Comment = {
     id : Nat;
@@ -64,6 +84,18 @@ actor {
     text : Text;
     likeCount : Nat;
     createdAt : Int;
+  };
+
+  // Story Type
+  public type Story = {
+    id : Nat;
+    creator : Principal;
+    mediaUrl : Text;
+    mediaType : Text; // "photo" or "video"
+    textOverlay : Text;
+    expiresAt : Int;
+    createdAt : Int;
+    viewerCount : Nat;
   };
 
   // Follows
@@ -75,9 +107,20 @@ actor {
   let videos = Map.empty<Nat, Video>();
   var videoIdCounter : Nat = 0;
 
+  // Store File Metadata
+  let fileMetadata = Map.empty<Nat, FileMetadata>();
+  var fileMetadataIdCounter : Nat = 0;
+
   // Store Comments
   let comments = Map.empty<Nat, Comment>();
   var commentIdCounter : Nat = 0;
+
+  // Store Stories
+  let stories = Map.empty<Nat, Story>();
+  var storyIdCounter : Nat = 0;
+
+  // Store Viewers for Stories
+  let storyViews = Map.empty<Nat, Set.Set<Principal>>();
 
   // Helper function to convert User to UserProfile
   private func userToProfile(user : User) : UserProfile {
@@ -93,44 +136,53 @@ actor {
     };
   };
 
-  // Frontend-required profile functions
-  public query ({ caller }) func getCallerUserProfile() : async ?UserProfile {
+  // File Upload
+  public shared ({ caller }) func uploadFile(
+    fileName : Text,
+    contentType : Text,
+    fileSize : Nat,
+    externalBlob : Storage.ExternalBlob,
+  ) : async FileMetadata {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can access their profile");
+      Runtime.trap("Unauthorized: Only users can upload files");
     };
-    switch (users.get(caller)) {
-      case (null) { null };
-      case (?user) { ?userToProfile(user) };
+
+    if (not users.containsKey(caller)) {
+      Runtime.trap("User not registered");
     };
+
+    let newFile : FileMetadata = {
+      id = fileMetadataIdCounter;
+      creator = caller;
+      fileName;
+      contentType;
+      fileSize;
+      externalBlob;
+      uploadedAt = Time.now();
+    };
+
+    fileMetadata.add(fileMetadataIdCounter, newFile);
+    fileMetadataIdCounter += 1;
+    newFile;
   };
 
-  public shared ({ caller }) func saveCallerUserProfile(profile : UserProfile) : async () {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can save profiles");
-    };
-    switch (users.get(caller)) {
-      case (null) { Runtime.trap("User not found") };
-      case (?user) {
-        let updatedUser = {
-          user with
-          name = profile.name;
-          email = profile.email;
-          avatarUrl = profile.avatarUrl;
-          bio = profile.bio;
-        };
-        users.add(caller, updatedUser);
-      };
-    };
+  public query ({ caller }) func getAllFiles() : async [FileMetadata] {
+    // Public query - anyone can browse files
+    let iter = fileMetadata.values();
+    let array = iter.toArray();
+    array;
   };
 
-  public query ({ caller }) func getUserProfile(user : Principal) : async ?UserProfile {
-    if (caller != user and not AccessControl.isAdmin(accessControlState, caller)) {
-      Runtime.trap("Unauthorized: Can only view your own profile or be an admin");
-    };
-    switch (users.get(user)) {
-      case (null) { null };
-      case (?u) { ?userToProfile(u) };
-    };
+  public query ({ caller }) func getFilesByCreator(creator : Principal) : async [FileMetadata] {
+    // Public query - anyone can view a creator's files
+    let iter = fileMetadata.values();
+    let filtered = iter.filter(func(file) { file.creator == creator });
+    filtered.toArray();
+  };
+
+  public query ({ caller }) func getFileById(fileId : Nat) : async ?FileMetadata {
+    // Public query - anyone can fetch a specific file's metadata
+    fileMetadata.get(fileId);
   };
 
   // Videos
@@ -164,6 +216,44 @@ actor {
     newVideo.id;
   };
 
+  // Frontend-required profile functions
+  public query ({ caller }) func getCallerUserProfile() : async ?UserProfile {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can access their profile");
+    };
+    switch (users.get(caller)) {
+      case (null) { null };
+      case (?user) { ?userToProfile(user) };
+    };
+  };
+
+  public shared ({ caller }) func saveCallerUserProfile(profile : UserProfile) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can save profiles");
+    };
+    switch (users.get(caller)) {
+      case (null) { Runtime.trap("User not found") };
+      case (?user) {
+        let updatedUser = {
+          user with
+          name = profile.name;
+          email = profile.email;
+          avatarUrl = profile.avatarUrl;
+          bio = profile.bio;
+        };
+        users.add(caller, updatedUser);
+      };
+    };
+  };
+
+  public query ({ caller }) func getUserProfile(user : Principal) : async ?UserProfile {
+    // Public query - anyone can view user profiles (social media requirement)
+    switch (users.get(user)) {
+      case (null) { null };
+      case (?u) { ?userToProfile(u) };
+    };
+  };
+
   public query ({ caller }) func getAllUserids() : async [Principal] {
     if (not (AccessControl.hasPermission(accessControlState, caller, #admin))) {
       Runtime.trap("Unauthorized: Only admins can access user list");
@@ -172,12 +262,14 @@ actor {
   };
 
   public query ({ caller }) func getAllVideos() : async [Video] {
+    // Public query - anyone can browse videos
     let iter = videos.values();
     let array = iter.toArray();
     array;
   };
 
   public query ({ caller }) func getVideosByCreator(creator : Principal) : async [Video] {
+    // Public query - anyone can view a creator's videos
     let iter = videos.values();
     let filtered = iter.filter(func(video) { video.creator == creator });
     filtered.toArray();
@@ -381,7 +473,7 @@ actor {
   };
 
   public query ({ caller }) func getUser(id : Principal) : async ?User {
-    // Public query - anyone can view user profiles
+    // Public query - anyone can view user profiles (social media requirement)
     users.get(id);
   };
 
@@ -420,5 +512,133 @@ actor {
       case (null) { false };
       case (?user) { user.isOnline };
     };
+  };
+
+  // Stories Queries
+
+  // 1. addStory
+  public shared ({ caller }) func addStory(mediaUrl : Text, mediaType : Text, textOverlay : Text) : async Nat {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can upload stories");
+    };
+
+    let newStory : Story = {
+      id = storyIdCounter;
+      creator = caller;
+      mediaUrl;
+      mediaType;
+      textOverlay;
+      expiresAt = Time.now() + (24 * 60 * 60 * 1000 * 1_000_000 : Int);
+      createdAt = Time.now();
+      viewerCount = 0;
+    };
+
+    stories.add(storyIdCounter, newStory);
+    storyIdCounter += 1;
+    newStory.id;
+  };
+
+  // 2. getActiveStories
+  public query ({ caller }) func getActiveStories() : async [Story] {
+    // Public query - anyone can view active stories
+    let currentTime = Time.now();
+    let activeStories = stories.values().toArray().filter(func(story) { story.expiresAt > currentTime });
+    activeStories;
+  };
+
+  // 3. getMyStories
+  public query ({ caller }) func getMyStories() : async [Story] {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can get their own stories");
+    };
+
+    let currentTime = Time.now();
+    let myStories = stories.values().toArray().filter(func(story) { story.creator == caller and story.expiresAt > currentTime });
+    myStories;
+  };
+
+  // 4. getStoriesByUser
+  public query ({ caller }) func getStoriesByUser(userId : Principal) : async [Story] {
+    // Public query - anyone can view a user's active stories
+    let currentTime = Time.now();
+    let userStories = stories.values().toArray().filter(func(story) { story.creator == userId and story.expiresAt > currentTime });
+    userStories;
+  };
+
+  // 5. deleteStory
+  public shared ({ caller }) func deleteStory(storyId : Nat) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can delete stories");
+    };
+
+    switch (stories.get(storyId)) {
+      case (null) { Runtime.trap("Story not found") };
+      case (?story) {
+        if (story.creator != caller) {
+          Runtime.trap("Unauthorized: Cannot delete other user's story");
+        };
+        stories.remove(storyId);
+      };
+    };
+  };
+
+  // 6. markStoryViewed
+  public shared ({ caller }) func markStoryViewed(storyId : Nat) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can mark stories as viewed");
+    };
+
+    switch (stories.get(storyId)) {
+      case (null) { Runtime.trap("Story not found") };
+      case (?story) {
+        let viewers = switch (storyViews.get(storyId)) {
+          case (null) { Set.empty<Principal>() };
+          case (?v) { v };
+        };
+
+        // Only count if not already in viewers
+        if (not viewers.contains(caller)) {
+          viewers.add(caller);
+          storyViews.add(storyId, viewers);
+
+          let updatedStory = { story with viewerCount = story.viewerCount + 1 };
+          stories.add(storyId, updatedStory);
+        };
+      };
+    };
+  };
+
+  // 7. hasViewedStory
+  public query ({ caller }) func hasViewedStory(storyId : Nat) : async Bool {
+    // Public query - anyone can check if they viewed a story
+    switch (storyViews.get(storyId)) {
+      case (null) { false };
+      case (?viewers) { viewers.contains(caller) };
+    };
+  };
+
+  // 8. getStoryViewCount
+  public query ({ caller }) func getStoryViewCount(storyId : Nat) : async Nat {
+    // Public query - anyone can view story view count
+    switch (stories.get(storyId)) {
+      case (null) { 0 };
+      case (?story) { story.viewerCount };
+    };
+  };
+
+  // 9. getUsersWithActiveStories
+  public query ({ caller }) func getUsersWithActiveStories() : async [Principal] {
+    // Public query - anyone can see which users have active stories
+    let currentTime = Time.now();
+    let activeStories = stories.values().toArray().filter(
+      func(story) { story.expiresAt > currentTime }
+    );
+    let uniqueUsers = Set.empty<Principal>();
+
+    for (story in activeStories.values()) {
+      uniqueUsers.add(story.creator);
+    };
+
+    uniqueUsers.toArray();
   };
 };

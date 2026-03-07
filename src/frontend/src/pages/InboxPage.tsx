@@ -402,26 +402,18 @@ function ChatView({
         <div className="flex items-center gap-2.5 flex-1 min-w-0">
           <Avatar convo={convo} size={38} showOnline />
           <div className="min-w-0">
-            <p
-              className="text-white font-semibold text-sm leading-none truncate"
+            <h2
+              className="text-white font-bold text-base leading-tight truncate"
               style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}
             >
-              {convo.displayName}
+              {convo.displayName.toUpperCase()}
+            </h2>
+            <p
+              className="text-xs truncate"
+              style={{ color: "rgba(255,255,255,0.4)" }}
+            >
+              @{convo.username}
             </p>
-            <div className="flex items-center gap-1.5 mt-0.5">
-              <span
-                className="w-1.5 h-1.5 rounded-full"
-                style={{ background: convo.isOnline ? "#22c55e" : "#6b7280" }}
-              />
-              <span
-                className="text-xs"
-                style={{
-                  color: convo.isOnline ? "#22c55e" : "rgba(255,255,255,0.3)",
-                }}
-              >
-                {convo.isOnline ? "Online" : "Offline"}
-              </span>
-            </div>
           </div>
         </div>
 
@@ -769,14 +761,22 @@ export function InboxPage() {
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2 mb-0.5">
-                      <span
-                        className="font-semibold text-white text-sm truncate"
-                        style={{
-                          fontFamily: "'Bricolage Grotesque', sans-serif",
-                        }}
-                      >
-                        {convo.displayName}
-                      </span>
+                      <div className="min-w-0">
+                        <p
+                          className="font-semibold text-white text-sm truncate leading-tight"
+                          style={{
+                            fontFamily: "'Bricolage Grotesque', sans-serif",
+                          }}
+                        >
+                          {convo.displayName.toUpperCase()}
+                        </p>
+                        <p
+                          className="text-xs truncate leading-tight"
+                          style={{ color: "rgba(255,255,255,0.35)" }}
+                        >
+                          @{convo.username}
+                        </p>
+                      </div>
                       <span
                         className="text-xs flex-shrink-0"
                         style={{ color: "rgba(255,255,255,0.3)" }}
@@ -785,7 +785,7 @@ export function InboxPage() {
                       </span>
                     </div>
                     <p
-                      className="text-sm truncate"
+                      className="text-sm truncate mt-0.5"
                       style={{
                         color: convo.unread
                           ? "rgba(255,255,255,0.75)"

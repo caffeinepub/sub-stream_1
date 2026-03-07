@@ -11,10 +11,21 @@ import {
   X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useRef, useState } from "react";
-import type { Video } from "../backend.d";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { toast } from "sonner";
+import type { Story, Video } from "../backend.d";
 import { OnlineDot } from "../components/OnlineDot";
+import { StoryOptionsSheet } from "../components/StoryOptionsSheet";
+import { StoryRing } from "../components/StoryRing";
 import { useAuth } from "../context/AuthContext";
+import {
+  getDisplayName,
+  getUsername,
+  packName,
+  sanitizeUsername,
+} from "../lib/userFormat";
+import { StoryCreatorPage } from "./StoryCreatorPage";
+import { StoryViewerPage, type StoryWithUser } from "./StoryViewerPage";
 
 interface ProfilePageProps {
   onBack: () => void;
@@ -51,22 +62,78 @@ const VIDEO_GRADIENTS = [
 export function ProfilePage({ onBack, onSettings }: ProfilePageProps) {
   const { userProfile, actor, isAuthenticated, refreshProfile } = useAuth();
   const [activeTab, setActiveTab] = useState<ProfileTab>("videos");
+  const displayNameFieldId = useId();
+  const usernameFieldId = useId();
+  const bioFieldId = useId();
+
+  // ── Story state ────────────────────────────────────────────────────────────
+  const [myStories, setMyStories] = useState<Story[]>([]);
+  const [storyOptionsOpen, setStoryOptionsOpen] = useState(false);
+  const [storyCreatorOpen, setStoryCreatorOpen] = useState(false);
+  const [storyViewerOpen, setStoryViewerOpen] = useState(false);
+  const [isDeletingStory, setIsDeletingStory] = useState(false);
+
+  const fetchMyStories = useCallback(async () => {
+    if (!actor || !isAuthenticated) return;
+    try {
+      const stories = await actor.getMyStories();
+      setMyStories(stories);
+    } catch {
+      // silently ignore
+    }
+  }, [actor, isAuthenticated]);
+
+  // Load stories on mount
+  useEffect(() => {
+    void fetchMyStories();
+  }, [fetchMyStories]);
+
+  const hasStory = myStories.length > 0;
+
+  const handleDeleteStory = async () => {
+    if (!actor || myStories.length === 0) return;
+    setIsDeletingStory(true);
+    try {
+      await actor.deleteStory(myStories[0].id);
+      toast.success("Story deleted");
+      setMyStories([]);
+      setStoryOptionsOpen(false);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to delete story",
+      );
+    } finally {
+      setIsDeletingStory(false);
+    }
+  };
+
+  // Build StoryWithUser for viewer
+  const myStoryWithUser: StoryWithUser[] = myStories.map((s) => ({
+    ...s,
+    userProfile: {
+      displayName: getDisplayName(userProfile?.name || "") || "ANONYMOUS",
+      username: getUsername(userProfile?.name || ""),
+      avatarUrl: userProfile?.avatarUrl || "",
+    },
+  }));
 
   // Edit mode state
   const [isEditing, setIsEditing] = useState(false);
-  const [editName, setEditName] = useState("");
+  const [editDisplayName, setEditDisplayName] = useState("");
+  const [editUsername, setEditUsername] = useState("");
+  const [editBio, setEditBio] = useState("");
   const [editAvatarPreview, setEditAvatarPreview] = useState<string | null>(
     null,
   );
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const nameInputRef = useRef<HTMLInputElement>(null);
+  const displayNameInputRef = useRef<HTMLInputElement>(null);
 
-  // Focus the name input when edit mode is entered
+  // Focus the display name input when edit mode is entered
   useEffect(() => {
     if (isEditing) {
-      const t = setTimeout(() => nameInputRef.current?.focus(), 50);
+      const t = setTimeout(() => displayNameInputRef.current?.focus(), 50);
       return () => clearTimeout(t);
     }
   }, [isEditing]);
@@ -82,7 +149,9 @@ export function ProfilePage({ onBack, onSettings }: ProfilePageProps) {
     enabled: !!actor && isAuthenticated,
   });
 
-  const displayName = userProfile?.name || "Anonymous";
+  const rawName = userProfile?.name || "";
+  const displayName = getDisplayName(rawName) || "ANONYMOUS";
+  const username = getUsername(rawName);
   const bio = userProfile?.bio || "";
   const avatarUrl = userProfile?.avatarUrl || "";
   const followerCount = userProfile?.followerCount ?? BigInt(0);
@@ -100,7 +169,9 @@ export function ProfilePage({ onBack, onSettings }: ProfilePageProps) {
 
   // Enter edit mode — snapshot current values
   function enterEditMode() {
-    setEditName(displayName);
+    setEditDisplayName(displayName);
+    setEditUsername(username);
+    setEditBio(bio);
     setEditAvatarPreview(null);
     setSaveError(null);
     setIsEditing(true);
@@ -109,10 +180,11 @@ export function ProfilePage({ onBack, onSettings }: ProfilePageProps) {
   // Cancel — revert everything
   function handleCancel() {
     setIsEditing(false);
-    setEditName("");
+    setEditDisplayName("");
+    setEditUsername("");
+    setEditBio("");
     setEditAvatarPreview(null);
     setSaveError(null);
-    // Revoke any created object URL to free memory
   }
 
   // Avatar file pick
@@ -149,9 +221,12 @@ export function ProfilePage({ onBack, onSettings }: ProfilePageProps) {
     setIsSaving(true);
     setSaveError(null);
     try {
-      const nameToSave = editName.trim() || displayName;
+      const nameToSave = packName(
+        editDisplayName.trim() || displayName,
+        editUsername.trim() || username,
+      );
       const avatarToSave = editAvatarPreview ?? avatarUrl;
-      await actor.updateUserProfile(nameToSave, bio, avatarToSave);
+      await actor.updateUserProfile(nameToSave, editBio, avatarToSave);
       await refreshProfile();
       setIsEditing(false);
       setEditAvatarPreview(null);
@@ -165,7 +240,6 @@ export function ProfilePage({ onBack, onSettings }: ProfilePageProps) {
   // Which avatar src to show
   const shownAvatarUrl =
     isEditing && editAvatarPreview ? editAvatarPreview : avatarUrl;
-  const shownName = isEditing ? editName : displayName;
 
   return (
     <div
@@ -227,57 +301,61 @@ export function ProfilePage({ onBack, onSettings }: ProfilePageProps) {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
       >
-        {/* Avatar */}
+        {/* Avatar with Story Ring */}
         <div className="relative mb-4">
-          <motion.button
-            type="button"
-            onClick={handleAvatarClick}
-            className="relative w-24 h-24 rounded-full flex items-center justify-center overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff0050]"
-            style={{
-              background: shownAvatarUrl
-                ? "transparent"
-                : "linear-gradient(135deg, #ff0050 0%, #ff6b35 100%)",
-              boxShadow: isEditing
-                ? "0 0 0 3px rgba(255,0,80,0.6), 0 0 24px rgba(255,0,80,0.35)"
-                : "0 0 0 3px rgba(255,0,80,0.3), 0 0 24px rgba(255,0,80,0.2)",
-              cursor: isEditing ? "pointer" : "default",
-            }}
-            aria-label={isEditing ? "Change profile photo" : undefined}
-            whileHover={isEditing ? { scale: 1.04 } : {}}
-            whileTap={isEditing ? { scale: 0.97 } : {}}
-          >
-            {shownAvatarUrl ? (
-              <img
-                src={shownAvatarUrl}
-                alt={shownName}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <span className="text-white font-bold text-2xl">
-                {getInitials(shownName || displayName)}
-              </span>
-            )}
-
-            {/* Edit overlay — only in edit mode */}
-            <AnimatePresence>
-              {isEditing && (
-                <motion.div
-                  key="avatar-overlay"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.18 }}
-                  className="absolute inset-0 flex flex-col items-center justify-center"
-                  style={{ background: "rgba(0,0,0,0.48)" }}
-                >
-                  <Camera size={22} className="text-white drop-shadow" />
-                  <span className="text-white text-[9px] font-semibold mt-1 tracking-wide uppercase">
-                    Change
-                  </span>
-                </motion.div>
+          {isEditing ? (
+            /* Edit mode: plain circular button to change photo */
+            <motion.button
+              type="button"
+              onClick={handleAvatarClick}
+              className="relative w-24 h-24 rounded-full flex items-center justify-center overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff0050]"
+              style={{
+                background: shownAvatarUrl
+                  ? "transparent"
+                  : "linear-gradient(135deg, #ff0050 0%, #ff6b35 100%)",
+                boxShadow:
+                  "0 0 0 3px rgba(255,0,80,0.6), 0 0 24px rgba(255,0,80,0.35)",
+                cursor: "pointer",
+              }}
+              aria-label="Change profile photo"
+              whileHover={{ scale: 1.04 }}
+              whileTap={{ scale: 0.97 }}
+            >
+              {shownAvatarUrl ? (
+                <img
+                  src={shownAvatarUrl}
+                  alt={displayName}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span className="text-white font-bold text-2xl">
+                  {getInitials(displayName)}
+                </span>
               )}
-            </AnimatePresence>
-          </motion.button>
+              {/* Edit overlay */}
+              <div
+                className="absolute inset-0 flex flex-col items-center justify-center"
+                style={{ background: "rgba(0,0,0,0.48)" }}
+              >
+                <Camera size={22} className="text-white drop-shadow" />
+                <span className="text-white text-[9px] font-semibold mt-1 tracking-wide uppercase">
+                  Change
+                </span>
+              </div>
+            </motion.button>
+          ) : (
+            /* View mode: StoryRing */
+            <StoryRing
+              avatarUrl={shownAvatarUrl}
+              displayName={displayName}
+              size={88}
+              hasStory={hasStory}
+              allViewed={false}
+              isOwn={true}
+              showPlusBadge={!hasStory}
+              onTap={() => setStoryOptionsOpen(true)}
+            />
+          )}
 
           {/* Bottom-right badge: OnlineDot in view mode, camera badge in edit mode */}
           <AnimatePresence mode="wait">
@@ -291,7 +369,7 @@ export function ProfilePage({ onBack, onSettings }: ProfilePageProps) {
                 exit={{ opacity: 0, scale: 0.6 }}
                 transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
                 className="absolute bottom-0 right-0 w-7 h-7 rounded-full flex items-center justify-center border-2 border-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff0050]"
-                style={{ background: "#ff0050" }}
+                style={{ background: "#ff0050", zIndex: 10 }}
                 aria-label="Upload profile image"
                 data-ocid="profile.upload_button"
               >
@@ -304,7 +382,8 @@ export function ProfilePage({ onBack, onSettings }: ProfilePageProps) {
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.6 }}
                 transition={{ duration: 0.2 }}
-                className="absolute bottom-1 right-1"
+                className="absolute"
+                style={{ bottom: 2, right: 2, zIndex: 10 }}
               >
                 <OnlineDot isOnline={isOnline} size={14} />
               </motion.div>
@@ -312,73 +391,179 @@ export function ProfilePage({ onBack, onSettings }: ProfilePageProps) {
           </AnimatePresence>
         </div>
 
-        {/* Username / Edit name row */}
+        {/* Display name + username — view mode */}
         <AnimatePresence mode="wait">
           {isEditing ? (
+            /* ── Edit mode: 3 fields ── */
             <motion.div
-              key="edit-name"
+              key="edit-fields"
               initial={{ opacity: 0, y: -6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -6 }}
               transition={{ duration: 0.22 }}
-              className="flex items-center gap-1.5 mb-1"
+              className="w-full max-w-xs space-y-3 mb-2"
             >
-              <span
-                className="text-white/50 font-bold text-xl select-none"
-                style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}
-              >
-                @
-              </span>
-              <input
-                ref={nameInputRef}
-                type="text"
-                data-ocid="profile.username_input"
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                className="bg-transparent text-white font-bold text-xl border-b-2 outline-none text-center min-w-0 w-40"
-                style={{
-                  fontFamily: "'Bricolage Grotesque', sans-serif",
-                  borderBottomColor: "#ff0050",
-                  caretColor: "#ff0050",
-                }}
-                placeholder="username"
-                maxLength={40}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void handleSave();
-                  if (e.key === "Escape") handleCancel();
-                }}
-              />
+              {/* Display Name field */}
+              <div className="space-y-1">
+                <label
+                  htmlFor={displayNameFieldId}
+                  className="block text-white/40 text-[10px] font-semibold tracking-widest uppercase text-left"
+                >
+                  Display Name
+                </label>
+                <input
+                  id={displayNameFieldId}
+                  ref={displayNameInputRef}
+                  type="text"
+                  data-ocid="profile.display_name_input"
+                  value={editDisplayName}
+                  onChange={(e) =>
+                    setEditDisplayName(e.target.value.toUpperCase())
+                  }
+                  className="w-full bg-transparent text-white font-bold text-lg border-b-2 outline-none text-center"
+                  style={{
+                    fontFamily: "'Bricolage Grotesque', sans-serif",
+                    borderBottomColor: "#ff0050",
+                    caretColor: "#ff0050",
+                    letterSpacing: "0.02em",
+                  }}
+                  placeholder="DISPLAY NAME"
+                  maxLength={60}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void handleSave();
+                    if (e.key === "Escape") handleCancel();
+                  }}
+                />
+              </div>
+
+              {/* Username field */}
+              <div className="space-y-1">
+                <label
+                  htmlFor={usernameFieldId}
+                  className="block text-white/40 text-[10px] font-semibold tracking-widest uppercase text-left"
+                >
+                  @Username
+                </label>
+                <div className="flex items-center gap-1 border-b-2 border-white/20 pb-0.5">
+                  <span
+                    className="text-white/50 font-bold text-lg select-none"
+                    style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}
+                  >
+                    @
+                  </span>
+                  <input
+                    id={usernameFieldId}
+                    type="text"
+                    data-ocid="profile.username_input"
+                    value={editUsername}
+                    onChange={(e) =>
+                      setEditUsername(sanitizeUsername(e.target.value))
+                    }
+                    className="flex-1 bg-transparent text-white/70 text-base border-none outline-none text-center"
+                    style={{
+                      fontFamily: "'Bricolage Grotesque', sans-serif",
+                      caretColor: "#ff0050",
+                    }}
+                    placeholder="username"
+                    maxLength={40}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void handleSave();
+                      if (e.key === "Escape") handleCancel();
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Bio textarea */}
+              <div className="space-y-1">
+                <label
+                  htmlFor={bioFieldId}
+                  className="block text-white/40 text-[10px] font-semibold tracking-widest uppercase text-left"
+                >
+                  Bio
+                </label>
+                <div className="relative">
+                  <textarea
+                    id={bioFieldId}
+                    data-ocid="profile.bio_textarea"
+                    value={editBio}
+                    onChange={(e) => {
+                      if (e.target.value.length <= 1000)
+                        setEditBio(e.target.value);
+                    }}
+                    rows={3}
+                    placeholder="Tell the world about yourself…"
+                    className="w-full rounded-xl px-3 py-2.5 text-white text-sm leading-relaxed outline-none resize-none placeholder:text-white/25"
+                    style={{
+                      background: "rgba(255,255,255,0.05)",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      caretColor: "#ff0050",
+                      minHeight: "80px",
+                    }}
+                    maxLength={1000}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") handleCancel();
+                    }}
+                  />
+                  <span
+                    className="absolute bottom-2 right-3 text-[10px] pointer-events-none"
+                    style={{ color: "rgba(255,255,255,0.25)" }}
+                  >
+                    {editBio.length}/1000
+                  </span>
+                </div>
+              </div>
             </motion.div>
           ) : (
-            <motion.button
-              key="view-name"
-              type="button"
-              onClick={enterEditMode}
+            /* ── View mode: display name + @username ── */
+            <motion.div
+              key="view-identity"
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 6 }}
               transition={{ duration: 0.22 }}
-              className="flex items-center gap-2 mb-1 group"
-              aria-label="Edit username"
+              className="flex flex-col items-center gap-0.5 mb-1"
             >
-              <h2
-                data-ocid="profile.username"
-                className="text-white font-bold text-xl"
-                style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}
+              {/* Display name + pencil */}
+              <button
+                type="button"
+                onClick={enterEditMode}
+                className="flex items-center gap-2 group"
+                aria-label="Edit profile"
               >
-                @{displayName}
-              </h2>
-              <Pencil
-                size={14}
-                className="text-white/40 group-hover:text-white/70 transition-colors flex-shrink-0"
-              />
-            </motion.button>
+                <h2
+                  data-ocid="profile.display_name"
+                  className="text-white font-bold text-2xl tracking-wide leading-none"
+                  style={{
+                    fontFamily: "'Bricolage Grotesque', sans-serif",
+                    letterSpacing: "0.02em",
+                  }}
+                >
+                  {displayName}
+                </h2>
+                <Pencil
+                  size={14}
+                  className="text-white/40 group-hover:text-white/70 transition-colors flex-shrink-0"
+                />
+              </button>
+
+              {/* @username */}
+              {username && (
+                <p
+                  data-ocid="profile.username"
+                  className="text-sm"
+                  style={{ color: "rgba(255,255,255,0.45)" }}
+                >
+                  @{username}
+                </p>
+              )}
+            </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Bio */}
-        {bio && (
-          <p className="text-white/50 text-sm max-w-xs leading-relaxed mb-4">
+        {/* Bio — view mode only */}
+        {!isEditing && bio && (
+          <p className="text-white/50 text-sm max-w-xs leading-relaxed mb-4 mt-2">
             {bio}
           </p>
         )}
@@ -511,6 +696,43 @@ export function ProfilePage({ onBack, onSettings }: ProfilePageProps) {
           <ComingSoonPlaceholder label="Live Replays" />
         )}
       </div>
+
+      {/* Story Options Sheet */}
+      <StoryOptionsSheet
+        open={storyOptionsOpen}
+        onClose={() => setStoryOptionsOpen(false)}
+        hasStory={hasStory}
+        onAddStory={() => setStoryCreatorOpen(true)}
+        onViewStory={() => setStoryViewerOpen(true)}
+        onDeleteStory={() => void handleDeleteStory()}
+        isDeleting={isDeletingStory}
+      />
+
+      {/* Story Creator overlay */}
+      <AnimatePresence>
+        {storyCreatorOpen && (
+          <StoryCreatorPage
+            key="story-creator"
+            onClose={() => setStoryCreatorOpen(false)}
+            onStoryPosted={() => {
+              setStoryCreatorOpen(false);
+              void fetchMyStories();
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Story Viewer overlay */}
+      <AnimatePresence>
+        {storyViewerOpen && myStoryWithUser.length > 0 && (
+          <StoryViewerPage
+            key="story-viewer-profile"
+            stories={myStoryWithUser}
+            initialStoryIndex={0}
+            onClose={() => setStoryViewerOpen(false)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
