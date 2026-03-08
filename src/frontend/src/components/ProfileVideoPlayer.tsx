@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronUp,
+  CornerDownRight,
   Heart,
   Link,
   MessageCircle,
@@ -13,10 +14,11 @@ import {
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import type { Video, VideoInteractionState } from "../backend.d";
+import type { Comment, Video, VideoInteractionState } from "../backend.d";
 import { useAuth } from "../context/AuthContext";
 import { useVideoAspectRatio } from "../hooks/useVideoAspectRatio";
 import { getDisplayName, getUsername } from "../lib/userFormat";
+import { CommentItem } from "./VideoCard";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -41,15 +43,6 @@ function formatCount(n: bigint | number): string {
   if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
   if (num >= 1_000) return `${(num / 1_000).toFixed(1)}K`;
   return String(num);
-}
-
-function formatRelativeTime(nsBigInt: bigint): string {
-  const ms = Number(nsBigInt / BigInt(1_000_000));
-  const diffSec = Math.floor((Date.now() - ms) / 1000);
-  if (diffSec < 60) return `${diffSec}s`;
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h`;
-  return `${Math.floor(diffSec / 86400)}d`;
 }
 
 // ── Progress dot ───────────────────────────────────────────────────────────────
@@ -107,12 +100,20 @@ function VideoPanel({
   const [commentPanelOpen, setCommentPanelOpen] = useState(false);
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
   const [commentText, setCommentText] = useState("");
+  const [replyingTo, setReplyingTo] = useState<{
+    id: bigint;
+    username: string;
+  } | null>(null);
+  const [likedCommentIds, setLikedCommentIds] = useState<Set<string>>(
+    new Set(),
+  );
 
   const lastTapRef = useRef<number>(0);
   const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isTouchGestureRef = useRef(false);
   const burstIdRef = useRef(0);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const commentInputRef = useRef<HTMLInputElement>(null);
 
   const { aspectClass } = useVideoAspectRatio(videoRef);
   const creatorPrincipalStr = video.creator.toString();
@@ -333,14 +334,53 @@ function VideoPanel({
       return;
     }
     const text = commentText.trim();
+    const replyToId = replyingTo?.id ?? null;
     setCommentText("");
+    setReplyingTo(null);
     try {
-      await actor.addComment(video.id, text);
+      await actor.addComment(video.id, text, replyToId);
       await queryClient.invalidateQueries({ queryKey: commentsQueryKey });
       await queryClient.invalidateQueries({ queryKey: interactionQueryKey });
     } catch {
       toast.error("Failed to post comment");
     }
+  };
+
+  const handleLikeComment = async (comment: Comment) => {
+    if (!isAuthenticated || !actor) {
+      toast.error("Log in to like comments");
+      return;
+    }
+    const idStr = comment.id.toString();
+    const isLiked = likedCommentIds.has(idStr);
+    setLikedCommentIds((prev) => {
+      const next = new Set(prev);
+      if (isLiked) next.delete(idStr);
+      else next.add(idStr);
+      return next;
+    });
+    try {
+      if (isLiked) {
+        await actor.unlikeComment(comment.id);
+      } else {
+        await actor.likeComment(comment.id);
+      }
+      await queryClient.invalidateQueries({ queryKey: commentsQueryKey });
+    } catch {
+      setLikedCommentIds((prev) => {
+        const next = new Set(prev);
+        if (isLiked) next.add(idStr);
+        else next.delete(idStr);
+        return next;
+      });
+      toast.error("Failed to update like");
+    }
+  };
+
+  const handleReply = (comment: Comment, authorUsername: string) => {
+    setReplyingTo({ id: comment.id, username: authorUsername });
+    setCommentText(`@${authorUsername} `);
+    setTimeout(() => commentInputRef.current?.focus(), 80);
   };
 
   const handleCopyLink = async () => {
@@ -717,74 +757,72 @@ function VideoPanel({
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {realComments.map((comment, idx) => {
-                      const authorStr = comment.author.toString();
-                      const relTime = formatRelativeTime(comment.createdAt);
-                      return (
-                        <div
-                          key={comment.id.toString()}
-                          data-ocid={`profile-player.comment.item.${idx + 1}`}
-                          className="flex items-start gap-3"
-                        >
-                          <div
-                            className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-white text-[10px] font-bold"
-                            style={{
-                              background:
-                                "linear-gradient(135deg, #ff0050, #ff6b35)",
-                            }}
-                          >
-                            {authorStr.slice(0, 4).toUpperCase()}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-0.5">
-                              <span
-                                className="text-white font-bold text-xs"
-                                style={{
-                                  fontFamily:
-                                    "'Bricolage Grotesque', sans-serif",
-                                }}
-                              >
-                                {authorStr.slice(0, 8)}…
-                              </span>
-                              <span className="text-white/30 text-[10px]">
-                                {relTime}
-                              </span>
-                            </div>
-                            <p className="text-white/80 text-sm leading-snug">
-                              {comment.text}
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            className="flex-shrink-0 flex flex-col items-center gap-0.5"
-                            aria-label="Like comment"
-                          >
-                            <Heart
-                              size={14}
-                              fill="none"
-                              stroke="rgba(255,255,255,0.4)"
-                            />
-                            {Number(comment.likeCount) > 0 && (
-                              <span className="text-white/40 text-[10px]">
-                                {formatCount(comment.likeCount)}
-                              </span>
-                            )}
-                          </button>
-                        </div>
-                      );
-                    })}
+                    {realComments.map((comment, idx) => (
+                      <CommentItem
+                        key={comment.id.toString()}
+                        comment={comment}
+                        idx={idx}
+                        scope="profile-player"
+                        isLiked={likedCommentIds.has(comment.id.toString())}
+                        onLike={() => void handleLikeComment(comment)}
+                        onReply={(username) => handleReply(comment, username)}
+                        onNavigateToProfile={onNavigateToProfile}
+                      />
+                    ))}
                   </div>
                 )}
               </div>
 
+              {/* Reply chip */}
+              <AnimatePresence>
+                {replyingTo && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="flex items-center gap-2 px-4 py-2 flex-shrink-0"
+                    style={{
+                      background: "rgba(255,0,80,0.08)",
+                      borderTop: "1px solid rgba(255,0,80,0.15)",
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <CornerDownRight size={13} style={{ color: "#ff0050" }} />
+                    <span className="text-white/60 text-xs flex-1">
+                      Replying to{" "}
+                      <span style={{ color: "#ff0050" }}>
+                        @{replyingTo.username}
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      data-ocid="profile-player.reply_to_clear_button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setReplyingTo(null);
+                        setCommentText("");
+                      }}
+                      className="w-5 h-5 rounded-full flex items-center justify-center"
+                      style={{ background: "rgba(255,255,255,0.1)" }}
+                      aria-label="Cancel reply"
+                    >
+                      <X size={10} className="text-white/60" />
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* biome-ignore lint/a11y/useKeyWithClickEvents: stopPropagation wrapper only */}
               <div
                 className="flex items-center gap-2 px-4 py-3 flex-shrink-0"
                 style={{
                   borderTop: "1px solid rgba(255,255,255,0.07)",
                   background: "rgba(0,0,0,0.4)",
                 }}
+                onClick={(e) => e.stopPropagation()}
               >
                 <input
+                  ref={commentInputRef}
                   type="text"
                   data-ocid="profile-player.comment_input"
                   value={commentText}
@@ -792,7 +830,11 @@ function VideoPanel({
                   onKeyDown={(e) => {
                     if (e.key === "Enter") void handleSendComment();
                   }}
-                  placeholder="Add a comment…"
+                  placeholder={
+                    replyingTo
+                      ? `Reply to @${replyingTo.username}…`
+                      : "Add a comment…"
+                  }
                   className="flex-1 px-3 py-2 rounded-full text-white text-sm placeholder:text-white/30 outline-none"
                   style={{
                     background: "rgba(255,255,255,0.08)",

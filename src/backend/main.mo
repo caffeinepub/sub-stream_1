@@ -5,12 +5,15 @@ import Iter "mo:core/Iter";
 import Time "mo:core/Time";
 import Runtime "mo:core/Runtime";
 import Principal "mo:core/Principal";
+import Migration "migration";
 
 import MixinAuthorization "authorization/MixinAuthorization";
 import Storage "blob-storage/Storage";
 import MixinStorage "blob-storage/Mixin";
 import AccessControl "authorization/access-control";
 
+// Enable State Migration via with-clause
+(with migration = Migration.run)
 actor {
   // Storage
   include MixinStorage();
@@ -30,6 +33,7 @@ actor {
     followingCount : Nat;
     isOnline : Bool;
     lastSeen : Int;
+    pinnedVideoIds : [Nat];
   };
 
   public type UserProfile = {
@@ -51,6 +55,7 @@ actor {
     videoUrl : Text;
     thumbnailUrl : Text;
     hashtags : [Text];
+    privacy : Text;
     likeCount : Nat;
     commentCount : Nat;
     shareCount : Nat;
@@ -74,6 +79,7 @@ actor {
     author : Principal;
     text : Text;
     likeCount : Nat;
+    replyToId : ?Nat;
     createdAt : Int;
   };
 
@@ -131,6 +137,7 @@ actor {
   // New interaction tracking maps
   let videoLikes = Map.empty<Nat, Set.Set<Principal>>();
   let videoBookmarks = Map.empty<Nat, Set.Set<Principal>>();
+  let commentLikes = Map.empty<Nat, Set.Set<Principal>>();
 
   func userToProfile(user : User) : UserProfile {
     {
@@ -198,6 +205,7 @@ actor {
     videoUrl : Text,
     thumbnailUrl : Text,
     hashtags : [Text],
+    privacy : Text,
   ) : async Nat {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can upload videos");
@@ -215,6 +223,7 @@ actor {
       videoUrl;
       thumbnailUrl;
       hashtags;
+      privacy;
       likeCount = 0;
       commentCount = 0;
       shareCount = 0;
@@ -475,7 +484,7 @@ actor {
     };
   };
 
-  public shared ({ caller }) func addComment(videoId : Nat, text : Text) : async () {
+  public shared ({ caller }) func addComment(videoId : Nat, text : Text, replyToId : ?Nat) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can add comments");
     };
@@ -488,6 +497,7 @@ actor {
           videoId;
           author = caller;
           text;
+          replyToId;
           likeCount = 0;
           createdAt = Time.now();
         };
@@ -782,6 +792,7 @@ actor {
       followingCount = 0;
       isOnline = false;
       lastSeen = Time.now();
+      pinnedVideoIds = [];
     };
 
     users.add(caller, newUser);
@@ -1000,6 +1011,192 @@ actor {
       if (message.fromUser == otherUser and message.toUser == caller and not message.isRead) {
         let updatedMessage = { message with isRead = true };
         directMessages.add(message.id, updatedMessage);
+      };
+    };
+  };
+
+  // PIN VIDEO FEATURE
+  public shared ({ caller }) func pinVideo(videoId : Nat) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can pin videos");
+    };
+
+    switch (videos.get(videoId)) {
+      case (null) { Runtime.trap("Video not found") };
+      case (?video) {
+        if (video.creator != caller) {
+          Runtime.trap("Unauthorized: Only video creator can pin their own video");
+        };
+
+        switch (users.get(caller)) {
+          case (null) { Runtime.trap("User not registered") };
+          case (?user) {
+            let isAlreadyPinned = user.pinnedVideoIds.any(
+              func(id) { id == videoId }
+            );
+
+            if (not isAlreadyPinned) {
+              let updatedPinnedVideos = user.pinnedVideoIds.concat([videoId]);
+              let updatedUser = { user with pinnedVideoIds = updatedPinnedVideos };
+              users.add(caller, updatedUser);
+            };
+          };
+        };
+      };
+    };
+  };
+
+  public shared ({ caller }) func unpinVideo(videoId : Nat) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can unpin videos");
+    };
+
+    switch (users.get(caller)) {
+      case (null) { Runtime.trap("User not registered") };
+      case (?user) {
+        let updatedPinnedVideos = user.pinnedVideoIds.filter(
+          func(id) { id != videoId }
+        );
+        let updatedUser = { user with pinnedVideoIds = updatedPinnedVideos };
+        users.add(caller, updatedUser);
+      };
+    };
+  };
+
+  public query ({ caller }) func getPinnedVideos(userId : Principal) : async [Video] {
+    switch (users.get(userId)) {
+      case (null) { [] };
+      case (?user) {
+        let pinnedVideos = user.pinnedVideoIds.map(
+          func(videoId) {
+            switch (videos.get(videoId)) {
+              case (null) { null };
+              case (?video) { ?video };
+            };
+          }
+        );
+
+        let nonNullVideos = pinnedVideos.filter(
+          func(optVideo) {
+            switch (optVideo) {
+              case (null) { false };
+              case (?_) { true };
+            };
+          }
+        );
+
+        let resultVideos = nonNullVideos.map(
+          func(optVideo) {
+            switch (optVideo) {
+              case (null) { Runtime.unreachable() };
+              case (?video) { video };
+            };
+          }
+        );
+        resultVideos;
+      };
+    };
+  };
+
+  // VIDEO MANAGEMENT
+  public shared ({ caller }) func updateVideo(
+    videoId : Nat,
+    caption : Text,
+    hashtags : [Text],
+    privacy : Text,
+  ) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can update videos");
+    };
+
+    switch (videos.get(videoId)) {
+      case (null) { Runtime.trap("Video not found") };
+      case (?video) {
+        if (video.creator != caller) {
+          Runtime.trap("Unauthorized: Only creator can update video");
+        };
+        let updatedVideo = {
+          video with
+          caption;
+          hashtags;
+          privacy;
+        };
+        videos.add(videoId, updatedVideo);
+      };
+    };
+  };
+
+  public shared ({ caller }) func deleteVideo(videoId : Nat) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can delete videos");
+    };
+
+    switch (videos.get(videoId)) {
+      case (null) { Runtime.trap("Video not found") };
+      case (?video) {
+        if (video.creator != caller) {
+          Runtime.trap("Unauthorized: Only creator can delete video");
+        };
+        videos.remove(videoId);
+      };
+    };
+  };
+
+  // COMMENT ENHANCEMENTS
+  public shared ({ caller }) func likeComment(commentId : Nat) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can like comments");
+    };
+
+    switch (comments.get(commentId)) {
+      case (null) { Runtime.trap("Comment not found") };
+      case (?comment) {
+        let currentLikes = switch (commentLikes.get(commentId)) {
+          case (null) {
+            let newSet = Set.empty<Principal>();
+            commentLikes.add(commentId, newSet);
+            newSet;
+          };
+          case (?likes) { likes };
+        };
+
+        if (not currentLikes.contains(caller)) {
+          currentLikes.add(caller);
+          let updatedComment = {
+            comment with
+            likeCount = comment.likeCount + 1;
+          };
+          comments.add(commentId, updatedComment);
+        };
+      };
+    };
+  };
+
+  public shared ({ caller }) func unlikeComment(commentId : Nat) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can unlike comments");
+    };
+
+    switch (comments.get(commentId)) {
+      case (null) { Runtime.trap("Comment not found") };
+      case (?comment) {
+        let currentLikes = switch (commentLikes.get(commentId)) {
+          case (null) {
+            let newSet = Set.empty<Principal>();
+            commentLikes.add(commentId, newSet);
+            newSet;
+          };
+          case (?likes) { likes };
+        };
+
+        if (currentLikes.contains(caller)) {
+          currentLikes.remove(caller);
+          let updatedComment = {
+            comment with
+            likeCount = if (comment.likeCount > 0) { comment.likeCount - 1 } else { 0 };
+          };
+          comments.add(commentId, updatedComment);
+        };
       };
     };
   };

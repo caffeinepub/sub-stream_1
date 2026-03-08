@@ -23,6 +23,7 @@ export interface Video {
     hashtags: Array<string>;
     createdAt: bigint;
     shareCount: bigint;
+    privacy: string;
     viewCount: bigint;
     caption: string;
     commentCount: bigint;
@@ -43,6 +44,7 @@ export interface Comment {
     createdAt: bigint;
     text: string;
     author: Principal;
+    replyToId?: bigint;
     videoId: bigint;
 }
 export interface User {
@@ -50,6 +52,7 @@ export interface User {
     bio: string;
     name: string;
     isOnline: boolean;
+    pinnedVideoIds: Array<bigint>;
     email: string;
     avatarUrl: string;
     followerCount: bigint;
@@ -104,11 +107,12 @@ export enum UserRole {
     guest = "guest"
 }
 export interface backendInterface {
-    addComment(videoId: bigint, text: string): Promise<void>;
+    addComment(videoId: bigint, text: string, replyToId: bigint | null): Promise<void>;
     addStory(mediaUrl: string, mediaType: string, textOverlay: string): Promise<bigint>;
-    addVideo(title: string, caption: string, videoUrl: string, thumbnailUrl: string, hashtags: Array<string>): Promise<bigint>;
+    addVideo(title: string, caption: string, videoUrl: string, thumbnailUrl: string, hashtags: Array<string>, privacy: string): Promise<bigint>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
     deleteStory(storyId: bigint): Promise<void>;
+    deleteVideo(videoId: bigint): Promise<void>;
     follow(userId: Principal): Promise<void>;
     getActiveStories(): Promise<Array<Story>>;
     getAllFiles(): Promise<Array<FileMetadata>>;
@@ -126,6 +130,7 @@ export interface backendInterface {
     getFollowing(userId: Principal): Promise<Array<Principal>>;
     getMyStories(): Promise<Array<Story>>;
     getOnlineStatus(userIds: Array<Principal>): Promise<Array<boolean>>;
+    getPinnedVideos(userId: Principal): Promise<Array<Video>>;
     getStoriesByUser(userId: Principal): Promise<Array<Story>>;
     getStoryViewCount(storyId: bigint): Promise<bigint>;
     getUser(id: Principal): Promise<User | null>;
@@ -145,9 +150,11 @@ export interface backendInterface {
     incrementViewCount(videoId: bigint): Promise<void>;
     isCallerAdmin(): Promise<boolean>;
     isFollowing(userId: Principal): Promise<boolean>;
+    likeComment(commentId: bigint): Promise<void>;
     likeVideo(videoId: bigint): Promise<void>;
     markConversationRead(otherUser: Principal): Promise<void>;
     markStoryViewed(storyId: bigint): Promise<void>;
+    pinVideo(videoId: bigint): Promise<void>;
     recordShare(videoId: bigint): Promise<void>;
     registerUser(name: string, email: string, passwordHash: string): Promise<void>;
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
@@ -155,8 +162,11 @@ export interface backendInterface {
     toggleBookmarkVideo(videoId: bigint): Promise<boolean>;
     toggleLikeVideo(videoId: bigint): Promise<boolean>;
     unfollow(userId: Principal): Promise<void>;
+    unlikeComment(commentId: bigint): Promise<void>;
     unlikeVideo(videoId: bigint): Promise<void>;
+    unpinVideo(videoId: bigint): Promise<void>;
     updateOnlineStatus(isOnline: boolean): Promise<void>;
     updateUserProfile(name: string, bio: string, avatarUrl: string): Promise<void>;
+    updateVideo(videoId: bigint, caption: string, hashtags: Array<string>, privacy: string): Promise<void>;
     uploadFile(fileName: string, contentType: string, fileSize: bigint, externalBlob: ExternalBlob): Promise<FileMetadata>;
 }

@@ -1,86 +1,53 @@
-# SUB STREAM — Creator Profile Video Gallery
+# Sub Stream — Profile Video System & Post Management
 
 ## Current State
 
-Both `ProfilePage.tsx` (own profile) and `UserProfilePage.tsx` (other creator's profile) contain a `VideoGrid` / basic video grid that:
-- Fetches videos via `actor.getAllVideos()` (own) or `actor.getUserVideos(principal)` (other)
-- Renders a 3-column grid of `aspect-[9/16]` tiles
-- Shows thumbnail image (if available) + a Play/view count badge in the bottom-left
-- Empty state shows "No videos yet"
-- Tapping a tile does nothing (no video player opens)
-- No video duration indicator on thumbnails
-- No fullscreen video player with swipe navigation from the profile
-- No swipe-up hint indicator
-
-The existing `VideoCard` component and `VideoFeed` (the main feed) already implement:
-- Fullscreen video playback with single-tap pause/play, double-tap like
-- Swipe up/down navigation between videos
-- Right-side interaction icons (Like, Comment, Share, Gift, Bookmark)
-- Comment and share bottom sheets
-- Creator info overlay
+- Profile page shows a 3-column video grid with gradient placeholders when no thumbnailUrl is present
+- Videos are stored with a `thumbnailUrl` field (Text) but no automated thumbnail extraction happens at upload time
+- No pin-to-profile feature exists on videos
+- No post management (edit/delete) menu exists on video cards in the profile grid
+- Comment panel shows comments but uses `author.toString()` truncated as the display name — no real user profile picture, display name, or @username is shown
+- Comment interactions (like, reply, tap avatar to view profile) are visual stubs only
+- ProfileVideoPlayer comment panel has the same shortcoming
 
 ## Requested Changes (Diff)
 
 ### Add
-- `ProfileVideoPlayer` component: a fullscreen video player modal that opens when a thumbnail is tapped on the profile page. It accepts a list of videos and a starting index, and supports:
-  - Immediate autoplay of the selected video
-  - Swipe up → next video, swipe down → previous video (same gesture logic as VideoFeed)
-  - Single tap → pause/play with Play overlay
-  - Double tap → like with heart burst animation
-  - Tap comment icon → open comments bottom sheet
-  - Tap share icon → open share bottom sheet
-  - Swipe-up gesture indicator (animated arrow + "Swipe up for next" text) that fades out after a few seconds for new users to discover navigation
-  - Back/close button (X) to return to the profile
-  - Right-side icons: Like, Comment, Share (same style as VideoCard)
-  - Creator info overlay at bottom-left (username, caption, hashtags)
-  - Uses `actor.getVideosByCreator` for the video list so it's scoped to the creator
 
-- Duration overlay on each thumbnail in the grid:
-  - Extract video duration using an `<video>` element's `onLoadedMetadata` event (lazy — only when in viewport or already loaded)
-  - Format as `MM:SS` (e.g., `00:32`)
-  - Displayed at bottom-right of thumbnail
-  - View count (if > 0) displayed at bottom-left with Play icon
+- **Client-side thumbnail generation**: When a video is uploaded, extract a frame at 1 second using a hidden `<video>` element + `<canvas>`, convert to a base64 data URL, and pass it as the `thumbnailUrl` to `addVideo` (frontend only — no backend change needed, the field already exists)
+- **2-column profile video grid**: Change grid from `grid-cols-3` to `grid-cols-2`; each card shows thumbnail image, duration badge (`MM:SS`), and view count (`• N views`)
+- **Pin video feature**: Backend — add `pinnedVideoIds: [Nat]` field to User, plus `pinVideo(videoId)` and `unpinVideo(videoId)` mutations. Frontend — pinned videos sort to the top of the profile grid; pinned cards show a `📌 Pinned` label
+- **Post management menu** (three-dots `⋯` button on each video card in own profile):
+  - Edit post — opens a bottom sheet to edit caption, hashtags, and privacy
+  - Delete post — shows a confirmation dialog ("Delete this post?"), then calls backend `deleteVideo`
+  - Pin to profile / Unpin from profile — calls pin/unpin backend
+- **`updateVideo` backend method**: allows creator to update `caption`, `hashtags`, and `privacy` on their own video
+- **`deleteVideo` backend method**: creator removes their own video; also removes the video from all feeds
+- **`privacy` field on Video**: add `privacy: Text` (values: "everyone", "followers", "only_me") defaulting to "everyone"
+- **Real user data in comments**: Both `VideoCard` and `ProfileVideoPlayer` comment panels must look up `getUserProfile(comment.author)` and display: circular avatar (or initials fallback), Display Name, @username, comment text, timestamp. Tapping the avatar navigates to that user's profile
+- **Comment like**: `likeComment(commentId)` backend call wired to the heart button in comment panels
+- **Comment reply**: reply input per comment — calls `addComment` with a `replyToId` context (displayed as "Replying to @username" inline)
+- **`replyToId` field on Comment**: optional `?Nat` for threading
 
 ### Modify
-- `ProfilePage.tsx` → `VideoGrid` component:
-  - Make each thumbnail tap open `ProfileVideoPlayer` at the tapped video index
-  - Add duration badge (bottom-right corner)
-  - Keep view count badge (bottom-left corner)
-  - Use `actor.getAllVideos()` filtered to own creator principal for the player list (already fetched)
 
-- `UserProfilePage.tsx` → video grid section:
-  - Extract into a reusable component or apply same tap-to-play pattern
-  - Make each thumbnail tap open `ProfileVideoPlayer` at the tapped video index
-  - Add duration badge (bottom-right corner)
-  - Keep view count badge (bottom-left corner)
-  - Video list scoped to the viewed creator
+- `VideoCard.tsx` — comment panel: replace truncated principal string with real user profile lookup per comment author
+- `ProfileVideoPlayer.tsx` — comment panel: same real user profile upgrade
+- `ProfilePage.tsx` — `VideoGrid`: change to 2-column layout, add three-dots menu per card, add 📌 Pinned label, sort pinned videos first
+- Upload flow (`PublishPage.tsx` or `VideoUploadPage.tsx`) — auto-generate thumbnail from video file before calling `addVideo`
+- `Video` type in backend — add `privacy: Text` field
+- `Comment` type in backend — add `replyToId: ?Nat` field
+- `User` type in backend — add `pinnedVideoIds: [Nat]` field
 
 ### Remove
-- Nothing removed; existing VideoGrid structure is kept and enhanced
+
+- Gradient placeholder fallback in profile grid (when a real thumbnailUrl is present — keep gradient only as fallback for videos without thumbnails)
 
 ## Implementation Plan
 
-1. Create `src/frontend/src/components/ProfileVideoPlayer.tsx`:
-   - Props: `videos: Video[]`, `initialIndex: number`, `onClose: () => void`, `isAuthenticated: boolean`, `onNavigateToProfile?: (p: string) => void`
-   - Renders fullscreen overlay (fixed, inset-0, z-50, bg-black)
-   - Reuses VideoCard internals (gesture handling, heart burst, comment/share panels, right-side icons) — can import VideoCard and pass isMuted/onMuteChange; or inline the player logic
-   - Swipe up/down navigation between videos in the provided array
-   - Close button top-left
-   - Swipe-up indicator: animated chevron-up + label, visible for first 3s or until user swipes, then fades out permanently (stored in local state)
-   - Uses `data-ocid` markers: `profile-player.canvas_target`, `profile-player.close_button`, `profile-player.item.{n}`, `profile-player.swipe_hint`
-
-2. Update `ProfilePage.tsx` → `VideoGrid`:
-   - Add `onVideoTap: (index: number) => void` prop
-   - Add `VideoDurationBadge` sub-component that lazily reads video duration from a hidden `<video>` element (loads `src={video.videoUrl}` with `preload="metadata"`) and displays `MM:SS`
-   - Wire tap on each tile to call `onVideoTap(i)`
-   - In `ProfilePage`, manage `playerOpen: boolean` and `playerIndex: number` state
-   - Render `<ProfileVideoPlayer>` conditionally with AnimatePresence
-
-3. Update `UserProfilePage.tsx` → video grid section:
-   - Same VideoDurationBadge + tap-to-open pattern
-   - Pass `videos` (already fetched via `getUserVideos`) to `ProfileVideoPlayer`
-   - Manage `playerOpen` / `playerIndex` state
-
-4. Ensure `ProfileVideoPlayer` uses `actor.incrementViewCount` when a video becomes active, same as the main feed.
-
-5. Add CSS animation for swipe-up hint (bounce-up keyframes) via Tailwind `animate-bounce` or custom inline animation.
+1. **Backend (`main.mo`)**: Add `pinnedVideoIds` to User, `privacy` to Video, `replyToId` to Comment. Add `pinVideo`, `unpinVideo`, `deleteVideo`, `updateVideo`, `likeComment` methods
+2. **Frontend — thumbnail generation**: In upload flow (PublishPage/VideoUploadPage), use canvas to extract frame at 1s, produce data URL, store as `thumbnailUrl`
+3. **Frontend — ProfilePage VideoGrid**: Switch to 2-column, add `• N views` + duration, three-dots menu with Edit/Delete/Pin/Unpin, 📌 Pinned label, pin-sorted order
+4. **Frontend — Edit post sheet**: Bottom sheet with caption textarea, hashtags input, privacy select; calls `updateVideo`
+5. **Frontend — Delete confirmation**: AlertDialog with "Delete this post?" — calls `deleteVideo`, invalidates `profileVideos` and `allVideos` queries
+6. **Frontend — Comment panels (VideoCard + ProfileVideoPlayer)**: For each comment, call `getUserProfile(comment.author)` to get avatar, display name, @username; render circular avatar + name + @handle; wire heart to `likeComment`; add reply UI

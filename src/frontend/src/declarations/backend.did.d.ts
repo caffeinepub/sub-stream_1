@@ -16,6 +16,7 @@ export interface Comment {
   'createdAt' : bigint,
   'text' : string,
   'author' : Principal,
+  'replyToId' : [] | [bigint],
   'videoId' : bigint,
 }
 export interface ConversationSummary {
@@ -57,6 +58,7 @@ export interface User {
   'bio' : string,
   'name' : string,
   'isOnline' : boolean,
+  'pinnedVideoIds' : Array<bigint>,
   'email' : string,
   'avatarUrl' : string,
   'followerCount' : bigint,
@@ -86,6 +88,7 @@ export interface Video {
   'hashtags' : Array<string>,
   'createdAt' : bigint,
   'shareCount' : bigint,
+  'privacy' : string,
   'viewCount' : bigint,
   'caption' : string,
   'commentCount' : bigint,
@@ -126,14 +129,15 @@ export interface _SERVICE {
   >,
   '_caffeineStorageUpdateGatewayPrincipals' : ActorMethod<[], undefined>,
   '_initializeAccessControlWithSecret' : ActorMethod<[string], undefined>,
-  'addComment' : ActorMethod<[bigint, string], undefined>,
+  'addComment' : ActorMethod<[bigint, string, [] | [bigint]], undefined>,
   'addStory' : ActorMethod<[string, string, string], bigint>,
   'addVideo' : ActorMethod<
-    [string, string, string, string, Array<string>],
+    [string, string, string, string, Array<string>, string],
     bigint
   >,
   'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
   'deleteStory' : ActorMethod<[bigint], undefined>,
+  'deleteVideo' : ActorMethod<[bigint], undefined>,
   'follow' : ActorMethod<[Principal], undefined>,
   'getActiveStories' : ActorMethod<[], Array<Story>>,
   'getAllFiles' : ActorMethod<[], Array<FileMetadata>>,
@@ -151,6 +155,7 @@ export interface _SERVICE {
   'getFollowing' : ActorMethod<[Principal], Array<Principal>>,
   'getMyStories' : ActorMethod<[], Array<Story>>,
   'getOnlineStatus' : ActorMethod<[Array<Principal>], Array<boolean>>,
+  'getPinnedVideos' : ActorMethod<[Principal], Array<Video>>,
   'getStoriesByUser' : ActorMethod<[Principal], Array<Story>>,
   'getStoryViewCount' : ActorMethod<[bigint], bigint>,
   'getUser' : ActorMethod<[Principal], [] | [User]>,
@@ -173,9 +178,11 @@ export interface _SERVICE {
   'incrementViewCount' : ActorMethod<[bigint], undefined>,
   'isCallerAdmin' : ActorMethod<[], boolean>,
   'isFollowing' : ActorMethod<[Principal], boolean>,
+  'likeComment' : ActorMethod<[bigint], undefined>,
   'likeVideo' : ActorMethod<[bigint], undefined>,
   'markConversationRead' : ActorMethod<[Principal], undefined>,
   'markStoryViewed' : ActorMethod<[bigint], undefined>,
+  'pinVideo' : ActorMethod<[bigint], undefined>,
   'recordShare' : ActorMethod<[bigint], undefined>,
   'registerUser' : ActorMethod<[string, string, string], undefined>,
   'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
@@ -183,9 +190,15 @@ export interface _SERVICE {
   'toggleBookmarkVideo' : ActorMethod<[bigint], boolean>,
   'toggleLikeVideo' : ActorMethod<[bigint], boolean>,
   'unfollow' : ActorMethod<[Principal], undefined>,
+  'unlikeComment' : ActorMethod<[bigint], undefined>,
   'unlikeVideo' : ActorMethod<[bigint], undefined>,
+  'unpinVideo' : ActorMethod<[bigint], undefined>,
   'updateOnlineStatus' : ActorMethod<[boolean], undefined>,
   'updateUserProfile' : ActorMethod<[string, string, string], undefined>,
+  'updateVideo' : ActorMethod<
+    [bigint, string, Array<string>, string],
+    undefined
+  >,
   'uploadFile' : ActorMethod<
     [string, string, bigint, ExternalBlob],
     FileMetadata

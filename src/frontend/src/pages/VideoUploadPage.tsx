@@ -383,6 +383,7 @@ export function VideoUploadPage({ onBack, onUploaded }: VideoUploadPageProps) {
         mediaUrl,
         thumbnailUrl,
         hashtags,
+        "everyone",
       );
 
       // 4. Invalidate queries so feeds refresh

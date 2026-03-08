@@ -71,6 +71,65 @@ export function PublishPage({
 
   const MAX_CHARS = 2200;
 
+  /** Generate a thumbnail from the first frame of a video file */
+  async function generateVideoThumbnail(file: File): Promise<string> {
+    return new Promise((resolve) => {
+      const video = document.createElement("video");
+      const objectUrl = URL.createObjectURL(file);
+      video.preload = "metadata";
+      video.muted = true;
+      video.playsInline = true;
+      video.crossOrigin = "anonymous";
+
+      const cleanup = () => {
+        URL.revokeObjectURL(objectUrl);
+        video.removeAttribute("src");
+        video.load();
+      };
+
+      video.onloadedmetadata = () => {
+        video.currentTime = Math.min(1, video.duration * 0.1 || 0.5);
+      };
+
+      video.onseeked = () => {
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.min(video.videoWidth, 720);
+          canvas.height = Math.round(
+            (canvas.width / video.videoWidth) * video.videoHeight,
+          );
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            cleanup();
+            resolve("");
+            return;
+          }
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+          cleanup();
+          resolve(dataUrl);
+        } catch {
+          cleanup();
+          resolve("");
+        }
+      };
+
+      video.onerror = () => {
+        cleanup();
+        resolve("");
+      };
+
+      video.src = objectUrl;
+      video.load();
+    });
+  }
+
+  const privacyToBackend = (p: PrivacySetting): string => {
+    if (p === "Followers") return "followers";
+    if (p === "Only Me") return "only_me";
+    return "everyone";
+  };
+
   const handlePost = async () => {
     if (!musicAccepted) {
       toast.error("Please accept the Music Usage Confirmation");
@@ -96,14 +155,21 @@ export function PublishPage({
       );
       const mediaUrl = meta.externalBlob.getDirectURL();
 
+      // Generate thumbnail from video
+      let thumbnailUrl = "";
+      if (isVideo) {
+        thumbnailUrl = await generateVideoThumbnail(mediaFile);
+      }
+
       // Save post
       const title = description.trim() || mediaFile.name;
       await actor.addVideo(
         title,
         description.trim(),
         mediaUrl,
-        "", // thumbnail (edit cover not yet implemented)
+        thumbnailUrl,
         extractHashtags(description),
+        privacyToBackend(privacy),
       );
 
       await Promise.all([

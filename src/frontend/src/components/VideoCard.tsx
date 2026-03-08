@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bookmark,
+  CornerDownRight,
   Heart,
   Link,
   MessageCircle,
@@ -17,7 +18,7 @@ import {
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import type { Video, VideoInteractionState } from "../backend.d";
+import type { Comment, Video, VideoInteractionState } from "../backend.d";
 import { useAuth } from "../context/AuthContext";
 import { useVideoAspectRatio } from "../hooks/useVideoAspectRatio";
 import { getDisplayName, getUsername } from "../lib/userFormat";
@@ -82,6 +83,16 @@ export function VideoCard({
   const [commentPanelOpen, setCommentPanelOpen] = useState(false);
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
   const [commentText, setCommentText] = useState("");
+  // Reply state
+  const [replyingTo, setReplyingTo] = useState<{
+    id: bigint;
+    username: string;
+  } | null>(null);
+  // Locally tracked liked comment IDs (session only)
+  const [likedCommentIds, setLikedCommentIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const commentInputRef = useRef<HTMLInputElement>(null);
 
   // Refs for tap detection
   const lastTapRef = useRef<number>(0);
@@ -437,14 +448,61 @@ export function VideoCard({
       return;
     }
     const text = commentText.trim();
+    const replyToId = replyingTo?.id ?? null;
     setCommentText("");
+    setReplyingTo(null);
     try {
-      await actor.addComment(video.id, text);
+      await actor.addComment(video.id, text, replyToId);
       await queryClient.invalidateQueries({ queryKey: commentsQueryKey });
       await queryClient.invalidateQueries({ queryKey: interactionQueryKey });
     } catch {
       toast.error("Failed to post comment");
     }
+  };
+
+  const handleLikeComment = async (comment: Comment) => {
+    if (!isAuthenticated || !actor) {
+      toast.error("Log in to like comments");
+      return;
+    }
+    const idStr = comment.id.toString();
+    const isLiked = likedCommentIds.has(idStr);
+    // Optimistic UI
+    setLikedCommentIds((prev) => {
+      const next = new Set(prev);
+      if (isLiked) {
+        next.delete(idStr);
+      } else {
+        next.add(idStr);
+      }
+      return next;
+    });
+    try {
+      if (isLiked) {
+        await actor.unlikeComment(comment.id);
+      } else {
+        await actor.likeComment(comment.id);
+      }
+      await queryClient.invalidateQueries({ queryKey: commentsQueryKey });
+    } catch {
+      // Rollback
+      setLikedCommentIds((prev) => {
+        const next = new Set(prev);
+        if (isLiked) {
+          next.add(idStr);
+        } else {
+          next.delete(idStr);
+        }
+        return next;
+      });
+      toast.error("Failed to update like");
+    }
+  };
+
+  const handleReply = (comment: Comment, authorUsername: string) => {
+    setReplyingTo({ id: comment.id, username: authorUsername });
+    setCommentText(`@${authorUsername} `);
+    setTimeout(() => commentInputRef.current?.focus(), 80);
   };
 
   const handleCopyLink = async () => {
@@ -952,81 +1010,73 @@ export function VideoCard({
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {realComments.map((comment, idx) => {
-                      const authorStr = comment.author.toString();
-                      const authorInitials = authorStr
-                        .slice(0, 4)
-                        .toUpperCase();
-                      const relTime = formatRelativeTime(comment.createdAt);
-                      return (
-                        <div
-                          key={comment.id.toString()}
-                          data-ocid={`video.comment.item.${idx + 1}`}
-                          className="flex items-start gap-3"
-                        >
-                          {/* Avatar */}
-                          <div
-                            className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-white text-[10px] font-bold"
-                            style={{
-                              background:
-                                "linear-gradient(135deg, #ff0050, #ff6b35)",
-                            }}
-                          >
-                            {authorInitials}
-                          </div>
-                          {/* Content */}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-0.5">
-                              <span
-                                className="text-white font-bold text-xs"
-                                style={{
-                                  fontFamily:
-                                    "'Bricolage Grotesque', sans-serif",
-                                }}
-                              >
-                                {authorStr.slice(0, 8)}…
-                              </span>
-                              <span className="text-white/30 text-[10px]">
-                                {relTime}
-                              </span>
-                            </div>
-                            <p className="text-white/80 text-sm leading-snug">
-                              {comment.text}
-                            </p>
-                          </div>
-                          {/* Like (local UI only for comments) */}
-                          <button
-                            type="button"
-                            className="flex-shrink-0 flex flex-col items-center gap-0.5"
-                            aria-label="Like comment"
-                          >
-                            <Heart
-                              size={14}
-                              fill="none"
-                              stroke="rgba(255,255,255,0.4)"
-                            />
-                            {Number(comment.likeCount) > 0 && (
-                              <span className="text-white/40 text-[10px]">
-                                {formatCount(comment.likeCount)}
-                              </span>
-                            )}
-                          </button>
-                        </div>
-                      );
-                    })}
+                    {realComments.map((comment, idx) => (
+                      <CommentItem
+                        key={comment.id.toString()}
+                        comment={comment}
+                        idx={idx}
+                        scope="video"
+                        isLiked={likedCommentIds.has(comment.id.toString())}
+                        onLike={() => void handleLikeComment(comment)}
+                        onReply={(username) => handleReply(comment, username)}
+                        onNavigateToProfile={onNavigateToProfile}
+                      />
+                    ))}
                   </div>
                 )}
               </div>
 
+              {/* Reply chip */}
+              <AnimatePresence>
+                {replyingTo && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="flex items-center gap-2 px-4 py-2 flex-shrink-0"
+                    style={{
+                      background: "rgba(255,0,80,0.08)",
+                      borderTop: "1px solid rgba(255,0,80,0.15)",
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <CornerDownRight size={13} style={{ color: "#ff0050" }} />
+                    <span className="text-white/60 text-xs flex-1">
+                      Replying to{" "}
+                      <span style={{ color: "#ff0050" }}>
+                        @{replyingTo.username}
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      data-ocid="video.reply_to_clear_button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setReplyingTo(null);
+                        setCommentText("");
+                      }}
+                      className="w-5 h-5 rounded-full flex items-center justify-center"
+                      style={{ background: "rgba(255,255,255,0.1)" }}
+                      aria-label="Cancel reply"
+                    >
+                      <X size={10} className="text-white/60" />
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               {/* Input bar */}
+              {/* biome-ignore lint/a11y/useKeyWithClickEvents: stopPropagation wrapper only */}
               <div
                 className="flex items-center gap-2 px-4 py-3 flex-shrink-0"
                 style={{
                   borderTop: "1px solid rgba(255,255,255,0.07)",
                   background: "rgba(0,0,0,0.4)",
                 }}
+                onClick={(e) => e.stopPropagation()}
               >
                 <input
+                  ref={commentInputRef}
                   type="text"
                   data-ocid="video.comment_input"
                   value={commentText}
@@ -1034,7 +1084,11 @@ export function VideoCard({
                   onKeyDown={(e) => {
                     if (e.key === "Enter") void handleSendComment();
                   }}
-                  placeholder="Add a comment…"
+                  placeholder={
+                    replyingTo
+                      ? `Reply to @${replyingTo.username}…`
+                      : "Add a comment…"
+                  }
                   className="flex-1 px-3 py-2 rounded-full text-white text-sm placeholder:text-white/30 outline-none"
                   style={{
                     background: "rgba(255,255,255,0.08)",
@@ -1194,6 +1248,148 @@ export function VideoCard({
           </>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+// ── CommentItem: shared comment row with real user profile ────────────────────
+
+interface CommentItemProps {
+  comment: Comment;
+  idx: number;
+  scope: string;
+  isLiked: boolean;
+  onLike: () => void;
+  onReply: (username: string) => void;
+  onNavigateToProfile?: (principal: string) => void;
+}
+
+export function CommentItem({
+  comment,
+  idx,
+  scope,
+  isLiked,
+  onLike,
+  onReply,
+  onNavigateToProfile,
+}: CommentItemProps) {
+  const { actor } = useAuth();
+  const authorStr = comment.author.toString();
+
+  const { data: authorProfile } = useQuery({
+    queryKey: ["userProfile", authorStr],
+    queryFn: async () => {
+      if (!actor) return null;
+      return actor.getUserProfile(comment.author);
+    },
+    enabled: !!actor,
+    staleTime: 120_000,
+  });
+
+  const displayName = authorProfile
+    ? getDisplayName(authorProfile.name) || getUsername(authorProfile.name)
+    : authorStr.slice(0, 8);
+  const username = authorProfile ? getUsername(authorProfile.name) : "";
+  const avatarUrl = authorProfile?.avatarUrl ?? "";
+  const initials = (displayName || "U").slice(0, 2).toUpperCase();
+
+  const relTime = formatRelativeTime(comment.createdAt);
+  const totalLikes = isLiked
+    ? Number(comment.likeCount) + (isLiked ? 0 : 0) // already accounted for
+    : Number(comment.likeCount);
+
+  return (
+    <div
+      data-ocid={`${scope}.comment.item.${idx + 1}`}
+      className="flex items-start gap-3"
+    >
+      {/* Avatar — tappable */}
+      <button
+        type="button"
+        onClick={() => onNavigateToProfile?.(authorStr)}
+        className="flex-shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff0050] rounded-full"
+        aria-label={`View ${displayName}'s profile`}
+      >
+        <div
+          className="w-9 h-9 rounded-full flex items-center justify-center overflow-hidden"
+          style={{
+            background: avatarUrl
+              ? "transparent"
+              : "linear-gradient(135deg, #ff0050, #ff6b35)",
+          }}
+        >
+          {avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt={displayName}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <span className="text-white text-[10px] font-bold">{initials}</span>
+          )}
+        </div>
+      </button>
+
+      {/* Content */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+          <button
+            type="button"
+            onClick={() => onNavigateToProfile?.(authorStr)}
+            className="text-left focus-visible:outline-none"
+          >
+            <span
+              className="text-white font-bold text-xs hover:underline"
+              style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}
+            >
+              {displayName}
+            </span>
+            {username && (
+              <span className="text-white/40 text-[10px] ml-1">
+                @{username}
+              </span>
+            )}
+          </button>
+          <span className="text-white/30 text-[10px]">{relTime}</span>
+        </div>
+        <p className="text-white/80 text-sm leading-snug">{comment.text}</p>
+        {/* Reply button */}
+        <button
+          type="button"
+          data-ocid={`${scope}.comment.reply_button.${idx + 1}`}
+          onClick={() => onReply(username || displayName.toLowerCase())}
+          className="flex items-center gap-1 mt-1.5"
+          aria-label="Reply to comment"
+        >
+          <span className="text-white/40 text-[10px] hover:text-white/70 transition-colors">
+            Reply
+          </span>
+        </button>
+      </div>
+
+      {/* Like button */}
+      <button
+        type="button"
+        data-ocid={`${scope}.comment.like_button.${idx + 1}`}
+        onClick={onLike}
+        className="flex-shrink-0 flex flex-col items-center gap-0.5"
+        aria-label={isLiked ? "Unlike comment" : "Like comment"}
+      >
+        <Heart
+          size={14}
+          fill={isLiked ? "#ff0050" : "none"}
+          stroke={isLiked ? "#ff0050" : "rgba(255,255,255,0.4)"}
+          className="transition-colors"
+        />
+        {totalLikes > 0 && (
+          <span
+            className="text-[10px]"
+            style={{ color: isLiked ? "#ff0050" : "rgba(255,255,255,0.4)" }}
+          >
+            {formatCount(totalLikes)}
+          </span>
+        )}
+      </button>
     </div>
   );
 }
