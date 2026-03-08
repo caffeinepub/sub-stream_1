@@ -76,6 +76,20 @@ export const Comment = IDL.Record({
   'author' : IDL.Principal,
   'videoId' : IDL.Nat,
 });
+export const DirectMessage = IDL.Record({
+  'id' : IDL.Nat,
+  'createdAt' : IDL.Int,
+  'text' : IDL.Text,
+  'isRead' : IDL.Bool,
+  'toUser' : IDL.Principal,
+  'fromUser' : IDL.Principal,
+});
+export const ConversationSummary = IDL.Record({
+  'lastMessageAt' : IDL.Int,
+  'lastMessage' : IDL.Text,
+  'otherUser' : IDL.Principal,
+  'unreadCount' : IDL.Nat,
+});
 export const User = IDL.Record({
   'id' : IDL.Principal,
   'bio' : IDL.Text,
@@ -87,6 +101,13 @@ export const User = IDL.Record({
   'passwordHash' : IDL.Text,
   'followingCount' : IDL.Nat,
   'lastSeen' : IDL.Int,
+});
+export const VideoInteractionState = IDL.Record({
+  'likeCount' : IDL.Nat,
+  'liked' : IDL.Bool,
+  'shareCount' : IDL.Nat,
+  'commentCount' : IDL.Nat,
+  'bookmarked' : IDL.Bool,
 });
 
 export const idlService = IDL.Service({
@@ -134,12 +155,19 @@ export const idlService = IDL.Service({
   'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
   'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
   'getComments' : IDL.Func([IDL.Nat], [IDL.Vec(Comment)], ['query']),
+  'getConversation' : IDL.Func(
+      [IDL.Principal],
+      [IDL.Vec(DirectMessage)],
+      ['query'],
+    ),
+  'getConversations' : IDL.Func([], [IDL.Vec(ConversationSummary)], ['query']),
   'getFileById' : IDL.Func([IDL.Nat], [IDL.Opt(FileMetadata)], ['query']),
   'getFilesByCreator' : IDL.Func(
       [IDL.Principal],
       [IDL.Vec(FileMetadata)],
       ['query'],
     ),
+  'getFollowerCount' : IDL.Func([IDL.Principal], [IDL.Nat], ['query']),
   'getFollowers' : IDL.Func(
       [IDL.Principal],
       [IDL.Vec(IDL.Principal)],
@@ -159,27 +187,44 @@ export const idlService = IDL.Service({
   'getStoriesByUser' : IDL.Func([IDL.Principal], [IDL.Vec(Story)], ['query']),
   'getStoryViewCount' : IDL.Func([IDL.Nat], [IDL.Nat], ['query']),
   'getUser' : IDL.Func([IDL.Principal], [IDL.Opt(User)], ['query']),
+  'getUserBookmarks' : IDL.Func([], [IDL.Vec(Video)], ['query']),
   'getUserByEmail' : IDL.Func([IDL.Text], [IDL.Opt(User)], ['query']),
-  'getUserPresenceStatus' : IDL.Func([], [IDL.Bool], ['query']),
+  'getUserPresenceStatus' : IDL.Func(
+      [IDL.Principal],
+      [IDL.Opt(IDL.Record({ 'isOnline' : IDL.Bool, 'lastSeen' : IDL.Int }))],
+      ['query'],
+    ),
   'getUserProfile' : IDL.Func(
       [IDL.Principal],
       [IDL.Opt(UserProfile)],
       ['query'],
     ),
+  'getUserVideos' : IDL.Func([IDL.Principal], [IDL.Vec(Video)], ['query']),
   'getUsersWithActiveStories' : IDL.Func(
       [],
       [IDL.Vec(IDL.Principal)],
+      ['query'],
+    ),
+  'getVideoCount' : IDL.Func([IDL.Principal], [IDL.Nat], ['query']),
+  'getVideoInteractionState' : IDL.Func(
+      [IDL.Nat],
+      [IDL.Opt(VideoInteractionState)],
       ['query'],
     ),
   'getVideosByCreator' : IDL.Func([IDL.Principal], [IDL.Vec(Video)], ['query']),
   'hasViewedStory' : IDL.Func([IDL.Nat], [IDL.Bool], ['query']),
   'incrementViewCount' : IDL.Func([IDL.Nat], [], []),
   'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
-  'isFollowing' : IDL.Func([IDL.Principal], [IDL.Opt(IDL.Bool)], ['query']),
+  'isFollowing' : IDL.Func([IDL.Principal], [IDL.Bool], ['query']),
   'likeVideo' : IDL.Func([IDL.Nat], [], []),
+  'markConversationRead' : IDL.Func([IDL.Principal], [], []),
   'markStoryViewed' : IDL.Func([IDL.Nat], [], []),
+  'recordShare' : IDL.Func([IDL.Nat], [], []),
   'registerUser' : IDL.Func([IDL.Text, IDL.Text, IDL.Text], [], []),
   'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
+  'sendMessage' : IDL.Func([IDL.Principal, IDL.Text], [IDL.Nat], []),
+  'toggleBookmarkVideo' : IDL.Func([IDL.Nat], [IDL.Bool], []),
+  'toggleLikeVideo' : IDL.Func([IDL.Nat], [IDL.Bool], []),
   'unfollow' : IDL.Func([IDL.Principal], [], []),
   'unlikeVideo' : IDL.Func([IDL.Nat], [], []),
   'updateOnlineStatus' : IDL.Func([IDL.Bool], [], []),
@@ -262,6 +307,20 @@ export const idlFactory = ({ IDL }) => {
     'author' : IDL.Principal,
     'videoId' : IDL.Nat,
   });
+  const DirectMessage = IDL.Record({
+    'id' : IDL.Nat,
+    'createdAt' : IDL.Int,
+    'text' : IDL.Text,
+    'isRead' : IDL.Bool,
+    'toUser' : IDL.Principal,
+    'fromUser' : IDL.Principal,
+  });
+  const ConversationSummary = IDL.Record({
+    'lastMessageAt' : IDL.Int,
+    'lastMessage' : IDL.Text,
+    'otherUser' : IDL.Principal,
+    'unreadCount' : IDL.Nat,
+  });
   const User = IDL.Record({
     'id' : IDL.Principal,
     'bio' : IDL.Text,
@@ -273,6 +332,13 @@ export const idlFactory = ({ IDL }) => {
     'passwordHash' : IDL.Text,
     'followingCount' : IDL.Nat,
     'lastSeen' : IDL.Int,
+  });
+  const VideoInteractionState = IDL.Record({
+    'likeCount' : IDL.Nat,
+    'liked' : IDL.Bool,
+    'shareCount' : IDL.Nat,
+    'commentCount' : IDL.Nat,
+    'bookmarked' : IDL.Bool,
   });
   
   return IDL.Service({
@@ -320,12 +386,23 @@ export const idlFactory = ({ IDL }) => {
     'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
     'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
     'getComments' : IDL.Func([IDL.Nat], [IDL.Vec(Comment)], ['query']),
+    'getConversation' : IDL.Func(
+        [IDL.Principal],
+        [IDL.Vec(DirectMessage)],
+        ['query'],
+      ),
+    'getConversations' : IDL.Func(
+        [],
+        [IDL.Vec(ConversationSummary)],
+        ['query'],
+      ),
     'getFileById' : IDL.Func([IDL.Nat], [IDL.Opt(FileMetadata)], ['query']),
     'getFilesByCreator' : IDL.Func(
         [IDL.Principal],
         [IDL.Vec(FileMetadata)],
         ['query'],
       ),
+    'getFollowerCount' : IDL.Func([IDL.Principal], [IDL.Nat], ['query']),
     'getFollowers' : IDL.Func(
         [IDL.Principal],
         [IDL.Vec(IDL.Principal)],
@@ -345,16 +422,28 @@ export const idlFactory = ({ IDL }) => {
     'getStoriesByUser' : IDL.Func([IDL.Principal], [IDL.Vec(Story)], ['query']),
     'getStoryViewCount' : IDL.Func([IDL.Nat], [IDL.Nat], ['query']),
     'getUser' : IDL.Func([IDL.Principal], [IDL.Opt(User)], ['query']),
+    'getUserBookmarks' : IDL.Func([], [IDL.Vec(Video)], ['query']),
     'getUserByEmail' : IDL.Func([IDL.Text], [IDL.Opt(User)], ['query']),
-    'getUserPresenceStatus' : IDL.Func([], [IDL.Bool], ['query']),
+    'getUserPresenceStatus' : IDL.Func(
+        [IDL.Principal],
+        [IDL.Opt(IDL.Record({ 'isOnline' : IDL.Bool, 'lastSeen' : IDL.Int }))],
+        ['query'],
+      ),
     'getUserProfile' : IDL.Func(
         [IDL.Principal],
         [IDL.Opt(UserProfile)],
         ['query'],
       ),
+    'getUserVideos' : IDL.Func([IDL.Principal], [IDL.Vec(Video)], ['query']),
     'getUsersWithActiveStories' : IDL.Func(
         [],
         [IDL.Vec(IDL.Principal)],
+        ['query'],
+      ),
+    'getVideoCount' : IDL.Func([IDL.Principal], [IDL.Nat], ['query']),
+    'getVideoInteractionState' : IDL.Func(
+        [IDL.Nat],
+        [IDL.Opt(VideoInteractionState)],
         ['query'],
       ),
     'getVideosByCreator' : IDL.Func(
@@ -365,11 +454,16 @@ export const idlFactory = ({ IDL }) => {
     'hasViewedStory' : IDL.Func([IDL.Nat], [IDL.Bool], ['query']),
     'incrementViewCount' : IDL.Func([IDL.Nat], [], []),
     'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
-    'isFollowing' : IDL.Func([IDL.Principal], [IDL.Opt(IDL.Bool)], ['query']),
+    'isFollowing' : IDL.Func([IDL.Principal], [IDL.Bool], ['query']),
     'likeVideo' : IDL.Func([IDL.Nat], [], []),
+    'markConversationRead' : IDL.Func([IDL.Principal], [], []),
     'markStoryViewed' : IDL.Func([IDL.Nat], [], []),
+    'recordShare' : IDL.Func([IDL.Nat], [], []),
     'registerUser' : IDL.Func([IDL.Text, IDL.Text, IDL.Text], [], []),
     'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
+    'sendMessage' : IDL.Func([IDL.Principal, IDL.Text], [IDL.Nat], []),
+    'toggleBookmarkVideo' : IDL.Func([IDL.Nat], [IDL.Bool], []),
+    'toggleLikeVideo' : IDL.Func([IDL.Nat], [IDL.Bool], []),
     'unfollow' : IDL.Func([IDL.Principal], [], []),
     'unlikeVideo' : IDL.Func([IDL.Nat], [], []),
     'updateOnlineStatus' : IDL.Func([IDL.Bool], [], []),

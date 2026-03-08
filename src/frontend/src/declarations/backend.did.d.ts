@@ -18,6 +18,20 @@ export interface Comment {
   'author' : Principal,
   'videoId' : bigint,
 }
+export interface ConversationSummary {
+  'lastMessageAt' : bigint,
+  'lastMessage' : string,
+  'otherUser' : Principal,
+  'unreadCount' : bigint,
+}
+export interface DirectMessage {
+  'id' : bigint,
+  'createdAt' : bigint,
+  'text' : string,
+  'isRead' : boolean,
+  'toUser' : Principal,
+  'fromUser' : Principal,
+}
 export type ExternalBlob = Uint8Array;
 export interface FileMetadata {
   'id' : bigint,
@@ -77,6 +91,13 @@ export interface Video {
   'commentCount' : bigint,
   'videoUrl' : string,
 }
+export interface VideoInteractionState {
+  'likeCount' : bigint,
+  'liked' : boolean,
+  'shareCount' : bigint,
+  'commentCount' : bigint,
+  'bookmarked' : boolean,
+}
 export interface _CaffeineStorageCreateCertificateResult {
   'method' : string,
   'blob_hash' : string,
@@ -121,8 +142,11 @@ export interface _SERVICE {
   'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,
   'getCallerUserRole' : ActorMethod<[], UserRole>,
   'getComments' : ActorMethod<[bigint], Array<Comment>>,
+  'getConversation' : ActorMethod<[Principal], Array<DirectMessage>>,
+  'getConversations' : ActorMethod<[], Array<ConversationSummary>>,
   'getFileById' : ActorMethod<[bigint], [] | [FileMetadata]>,
   'getFilesByCreator' : ActorMethod<[Principal], Array<FileMetadata>>,
+  'getFollowerCount' : ActorMethod<[Principal], bigint>,
   'getFollowers' : ActorMethod<[Principal], Array<Principal>>,
   'getFollowing' : ActorMethod<[Principal], Array<Principal>>,
   'getMyStories' : ActorMethod<[], Array<Story>>,
@@ -130,19 +154,34 @@ export interface _SERVICE {
   'getStoriesByUser' : ActorMethod<[Principal], Array<Story>>,
   'getStoryViewCount' : ActorMethod<[bigint], bigint>,
   'getUser' : ActorMethod<[Principal], [] | [User]>,
+  'getUserBookmarks' : ActorMethod<[], Array<Video>>,
   'getUserByEmail' : ActorMethod<[string], [] | [User]>,
-  'getUserPresenceStatus' : ActorMethod<[], boolean>,
+  'getUserPresenceStatus' : ActorMethod<
+    [Principal],
+    [] | [{ 'isOnline' : boolean, 'lastSeen' : bigint }]
+  >,
   'getUserProfile' : ActorMethod<[Principal], [] | [UserProfile]>,
+  'getUserVideos' : ActorMethod<[Principal], Array<Video>>,
   'getUsersWithActiveStories' : ActorMethod<[], Array<Principal>>,
+  'getVideoCount' : ActorMethod<[Principal], bigint>,
+  'getVideoInteractionState' : ActorMethod<
+    [bigint],
+    [] | [VideoInteractionState]
+  >,
   'getVideosByCreator' : ActorMethod<[Principal], Array<Video>>,
   'hasViewedStory' : ActorMethod<[bigint], boolean>,
   'incrementViewCount' : ActorMethod<[bigint], undefined>,
   'isCallerAdmin' : ActorMethod<[], boolean>,
-  'isFollowing' : ActorMethod<[Principal], [] | [boolean]>,
+  'isFollowing' : ActorMethod<[Principal], boolean>,
   'likeVideo' : ActorMethod<[bigint], undefined>,
+  'markConversationRead' : ActorMethod<[Principal], undefined>,
   'markStoryViewed' : ActorMethod<[bigint], undefined>,
+  'recordShare' : ActorMethod<[bigint], undefined>,
   'registerUser' : ActorMethod<[string, string, string], undefined>,
   'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
+  'sendMessage' : ActorMethod<[Principal, string], bigint>,
+  'toggleBookmarkVideo' : ActorMethod<[bigint], boolean>,
+  'toggleLikeVideo' : ActorMethod<[bigint], boolean>,
   'unfollow' : ActorMethod<[Principal], undefined>,
   'unlikeVideo' : ActorMethod<[bigint], undefined>,
   'updateOnlineStatus' : ActorMethod<[boolean], undefined>,

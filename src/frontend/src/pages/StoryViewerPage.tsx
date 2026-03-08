@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Story } from "../backend.d";
 import { useAuth } from "../context/AuthContext";
+import { useVideoAspectRatio } from "../hooks/useVideoAspectRatio";
 
 export interface StoryWithUser extends Story {
   userProfile: {
@@ -62,6 +63,8 @@ export function StoryViewerPage({
   const videoRef = useRef<HTMLVideoElement>(null);
   const touchStartXRef = useRef<number | null>(null);
   const touchStartYRef = useRef<number | null>(null);
+
+  const { aspectClass: storyAspectClass } = useVideoAspectRatio(videoRef);
 
   const currentStory = stories[currentIndex];
 
@@ -234,18 +237,32 @@ export function StoryViewerPage({
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.96 }}
             transition={{ duration: 0.25 }}
-            className="absolute inset-0"
+            className="absolute inset-0 bg-black flex items-center justify-center"
           >
             {currentStory.mediaType === "video" ? (
               <video
                 ref={videoRef}
                 src={currentStory.mediaUrl}
                 autoPlay
-                muted
                 loop={false}
                 playsInline
-                className="w-full h-full object-cover"
+                className={
+                  storyAspectClass === "vertical"
+                    ? "w-full h-full object-contain"
+                    : "w-full h-full object-contain"
+                }
                 onLoadedMetadata={handleVideoLoadedMetadata}
+                onCanPlay={() => {
+                  if (videoRef.current) {
+                    videoRef.current.play().catch(() => {
+                      // Autoplay blocked — try muted
+                      if (videoRef.current) {
+                        videoRef.current.muted = true;
+                        videoRef.current.play().catch(() => {});
+                      }
+                    });
+                  }
+                }}
               >
                 <track kind="captions" />
               </video>
@@ -253,7 +270,7 @@ export function StoryViewerPage({
               <img
                 src={currentStory.mediaUrl}
                 alt="Story"
-                className="w-full h-full object-cover"
+                className="w-full h-full object-contain"
               />
             )}
           </motion.div>

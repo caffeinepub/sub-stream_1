@@ -1,42 +1,40 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Bookmark,
+  ChevronUp,
   Heart,
   Link,
   MessageCircle,
-  Music2,
-  Play,
   Send,
   Share2,
-  Sparkles,
-  UserCheck,
   Volume2,
   VolumeX,
   X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { Video, VideoInteractionState } from "../backend.d";
 import { useAuth } from "../context/AuthContext";
 import { useVideoAspectRatio } from "../hooks/useVideoAspectRatio";
 import { getDisplayName, getUsername } from "../lib/userFormat";
-import { OnlineDot } from "./OnlineDot";
 
-// Gradient palette for video placeholders
-const GRADIENTS = [
-  { from: "from-rose-900", to: "to-pink-800" },
-  { from: "from-violet-900", to: "to-purple-800" },
-  { from: "from-blue-900", to: "to-indigo-900" },
-  { from: "from-emerald-900", to: "to-teal-900" },
-  { from: "from-amber-900", to: "to-orange-900" },
-  { from: "from-cyan-900", to: "to-blue-900" },
-];
+// ── Types ──────────────────────────────────────────────────────────────────────
 
-function getGradient(id: bigint) {
-  const idx = Number(id % BigInt(GRADIENTS.length));
-  return GRADIENTS[idx]!;
+interface HeartBurst {
+  id: number;
+  x: number;
+  y: number;
 }
+
+interface ProfileVideoPlayerProps {
+  videos: Video[];
+  initialIndex: number;
+  onClose: () => void;
+  isAuthenticated: boolean;
+  onNavigateToProfile?: (principal: string) => void;
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
 
 function formatCount(n: bigint | number): string {
   const num = typeof n === "bigint" ? Number(n) : n;
@@ -54,56 +52,78 @@ function formatRelativeTime(nsBigInt: bigint): string {
   return `${Math.floor(diffSec / 86400)}d`;
 }
 
-interface HeartBurst {
-  id: number;
-  x: number;
-  y: number;
+// ── Progress dot ───────────────────────────────────────────────────────────────
+
+function ProgressDots({ total, current }: { total: number; current: number }) {
+  // Clamp the visible window to avoid huge lists
+  const maxVisible = 10;
+  const half = Math.floor(maxVisible / 2);
+  let start = Math.max(0, current - half);
+  const end = Math.min(total, start + maxVisible);
+  start = Math.max(0, end - maxVisible);
+
+  return (
+    <div className="flex flex-col gap-1.5 items-center pointer-events-none">
+      {Array.from({ length: end - start }).map((_, i) => {
+        const idx = start + i;
+        const isActive = idx === current;
+        return (
+          <div
+            key={idx}
+            className="w-1 rounded-full transition-all duration-300"
+            style={{
+              height: isActive ? "20px" : "6px",
+              background: isActive ? "#ff0050" : "rgba(255,255,255,0.3)",
+            }}
+          />
+        );
+      })}
+    </div>
+  );
 }
 
-interface VideoCardProps {
+// ── Single video panel (rendered inside the player) ────────────────────────────
+
+interface VideoPanelProps {
   video: Video;
-  isAuthenticated?: boolean;
-  onNavigateToProfile?: (principal: string) => void;
+  isAuthenticated: boolean;
   isMuted: boolean;
-  onMuteChange: (muted: boolean) => void;
+  onMuteChange: (m: boolean) => void;
+  onNavigateToProfile?: (principal: string) => void;
 }
 
-export function VideoCard({
+function VideoPanel({
   video,
-  isAuthenticated = false,
-  onNavigateToProfile,
+  isAuthenticated,
   isMuted,
   onMuteChange,
-}: VideoCardProps) {
+  onNavigateToProfile,
+}: VideoPanelProps) {
   const { actor, userProfile } = useAuth();
   const queryClient = useQueryClient();
+
   const [heartBursts, setHeartBursts] = useState<HeartBurst[]>([]);
   const [isPlaying, setIsPlaying] = useState(true);
   const [commentPanelOpen, setCommentPanelOpen] = useState(false);
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
   const [commentText, setCommentText] = useState("");
 
-  // Refs for tap detection
   const lastTapRef = useRef<number>(0);
   const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Tracks whether the most recent gesture originated from a touch event,
-  // so the trailing synthetic onClick can be suppressed (avoids double-fire).
   const isTouchGestureRef = useRef(false);
   const burstIdRef = useRef(0);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const { aspectClass } = useVideoAspectRatio(videoRef);
-  const gradient = getGradient(video.id);
   const creatorPrincipalStr = video.creator.toString();
-
-  // ─── Caller principal (for scoping query keys) ───────────────────────────
   const callerPrincipal = userProfile?.email ?? "anon";
 
-  // ─── Video interaction state (real backend) ──────────────────────────────
+  // ── Interaction state ──────────────────────────────────────────────────────
   const interactionQueryKey = useMemo(
     () => ["videoInteraction", video.id.toString(), callerPrincipal],
     [video.id, callerPrincipal],
   );
+
   const { data: interactionState } = useQuery({
     queryKey: interactionQueryKey,
     queryFn: async () => {
@@ -114,9 +134,7 @@ export function VideoCard({
     staleTime: 30_000,
   });
 
-  // Derive display values from real backend state; fall back to video counts
   const liked = interactionState?.liked ?? false;
-  const bookmarked = interactionState?.bookmarked ?? false;
   const likeCount =
     interactionState?.likeCount != null
       ? Number(interactionState.likeCount)
@@ -130,7 +148,7 @@ export function VideoCard({
       ? Number(interactionState.shareCount)
       : Number(video.shareCount);
 
-  // ─── Real comments ───────────────────────────────────────────────────────
+  // ── Comments ───────────────────────────────────────────────────────────────
   const commentsQueryKey = useMemo(
     () => ["comments", video.id.toString()],
     [video.id],
@@ -145,7 +163,7 @@ export function VideoCard({
     staleTime: 10_000,
   });
 
-  // ─── Creator info ────────────────────────────────────────────────────────
+  // ── Creator info ───────────────────────────────────────────────────────────
   const { data: creatorUser } = useQuery({
     queryKey: ["user", creatorPrincipalStr],
     queryFn: async () => {
@@ -156,70 +174,16 @@ export function VideoCard({
     staleTime: 120_000,
   });
 
-  const { data: isFollowingCreator = false } = useQuery({
-    queryKey: ["isFollowing", creatorPrincipalStr],
-    queryFn: async () => {
-      if (!actor || !isAuthenticated) return false;
-      return actor.isFollowing(video.creator);
-    },
-    enabled: !!actor && isAuthenticated,
-    staleTime: 30_000,
-  });
-
-  const isOwnVideo =
-    creatorUser && userProfile
-      ? creatorUser.name === userProfile.name &&
-        creatorUser.email === userProfile.email
-      : false;
-
   const displayName = creatorUser
     ? getDisplayName(creatorUser.name) ||
       getUsername(creatorUser.name) ||
-      creatorPrincipalStr.split("-")[0] ||
       "USER"
-    : creatorPrincipalStr.split("-")[0] || "USER";
+    : "USER";
   const username = creatorUser ? getUsername(creatorUser.name) : "";
   const avatarUrl = creatorUser?.avatarUrl ?? "";
-  const isOnline = creatorUser?.isOnline ?? false;
   const initials = avatarUrl ? "" : displayName.slice(0, 2).toUpperCase();
 
-  // ─── Mutations ───────────────────────────────────────────────────────────
-
-  const followMutation = useMutation({
-    mutationFn: async () => {
-      if (!actor) throw new Error("Not connected");
-      if (isFollowingCreator) {
-        await actor.unfollow(video.creator);
-      } else {
-        await actor.follow(video.creator);
-      }
-    },
-    onMutate: async () => {
-      await queryClient.cancelQueries({
-        queryKey: ["isFollowing", creatorPrincipalStr],
-      });
-      queryClient.setQueryData(
-        ["isFollowing", creatorPrincipalStr],
-        !isFollowingCreator,
-      );
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: ["isFollowing", creatorPrincipalStr],
-      });
-      void queryClient.invalidateQueries({ queryKey: ["userProfile"] });
-      toast.success(isFollowingCreator ? "Unfollowed" : "Following!");
-    },
-    onError: () => {
-      queryClient.setQueryData(
-        ["isFollowing", creatorPrincipalStr],
-        isFollowingCreator,
-      );
-      toast.error("Failed to update follow status");
-    },
-  });
-
-  // Like toggle mutation (right-side button) — full toggle with optimistic update
+  // ── Like mutation ──────────────────────────────────────────────────────────
   const likeMutation = useMutation({
     mutationFn: async () => {
       if (!actor) throw new Error("Not connected");
@@ -254,70 +218,7 @@ export function VideoCard({
     },
   });
 
-  // Bookmark toggle mutation with optimistic update
-  const bookmarkMutation = useMutation({
-    mutationFn: async () => {
-      if (!actor) throw new Error("Not connected");
-      return actor.toggleBookmarkVideo(video.id);
-    },
-    onMutate: async () => {
-      await queryClient.cancelQueries({ queryKey: interactionQueryKey });
-      const prev = queryClient.getQueryData(interactionQueryKey);
-      queryClient.setQueryData(
-        interactionQueryKey,
-        (old: VideoInteractionState | null | undefined) => {
-          if (!old) return old;
-          return { ...old, bookmarked: !old.bookmarked };
-        },
-      );
-      return { prev };
-    },
-    onError: (_err, _vars, ctx) => {
-      if (ctx?.prev !== undefined) {
-        queryClient.setQueryData(interactionQueryKey, ctx.prev);
-      }
-      toast.error("Failed to update bookmark");
-    },
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: interactionQueryKey });
-    },
-  });
-
-  // ─── Handlers ────────────────────────────────────────────────────────────
-
-  const handleFollow = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!isAuthenticated) {
-      toast.error("Log in to follow creators");
-      return;
-    }
-    followMutation.mutate();
-  };
-
-  const handleCreatorTap = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onNavigateToProfile?.(creatorPrincipalStr);
-  };
-
-  const handleLike = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!isAuthenticated) {
-      toast.error("Log in to like videos");
-      return;
-    }
-    likeMutation.mutate();
-  };
-
-  const handleBookmark = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!isAuthenticated) {
-      toast.error("Log in to bookmark videos");
-      return;
-    }
-    bookmarkMutation.mutate();
-  };
-
-  // Trigger heart burst animation + like-only action (double-tap: never unlike)
+  // ── Trigger heart burst + like-only on double-tap ──────────────────────────
   const triggerLike = useCallback(
     (x: number, y: number) => {
       const id = burstIdRef.current++;
@@ -326,9 +227,7 @@ export function VideoCard({
         setHeartBursts((prev) => prev.filter((h) => h.id !== id));
       }, 700);
 
-      // Only like if not already liked; double-tap should never unlike
       if (!liked && isAuthenticated && actor) {
-        // Optimistic UI
         queryClient.setQueryData(
           interactionQueryKey,
           (old: VideoInteractionState | null | undefined) => {
@@ -343,7 +242,6 @@ export function VideoCard({
         actor
           .toggleLikeVideo(video.id)
           .then((newState) => {
-            // If backend says not liked (shouldn't happen), sync back
             if (!newState) {
               void queryClient.invalidateQueries({
                 queryKey: interactionQueryKey,
@@ -360,26 +258,21 @@ export function VideoCard({
     [liked, isAuthenticated, actor, video.id, queryClient, interactionQueryKey],
   );
 
-  // ─── Core gesture logic ──────────────────────────────────────────────────
-  // Called once per physical tap, regardless of whether it came from touch or mouse.
+  // ── Gesture processing ─────────────────────────────────────────────────────
   const processTap = useCallback(
     (clientX: number, clientY: number) => {
       const now = Date.now();
       const timeDiff = now - lastTapRef.current;
 
       if (timeDiff < 300 && timeDiff > 0 && tapTimerRef.current) {
-        // ── Double tap ──
-        // Cancel the pending single-tap action so play/pause never fires.
         clearTimeout(tapTimerRef.current);
         tapTimerRef.current = null;
         lastTapRef.current = 0;
         triggerLike(clientX, clientY);
       } else {
-        // ── Potential single tap — wait 300ms to confirm no second tap follows ──
         lastTapRef.current = now;
         tapTimerRef.current = setTimeout(() => {
           tapTimerRef.current = null;
-          // Single tap confirmed: toggle play/pause only
           if (videoRef.current) {
             if (videoRef.current.paused) {
               videoRef.current.play().catch(() => {});
@@ -395,12 +288,10 @@ export function VideoCard({
     [triggerLike],
   );
 
-  // Touch path — fires on touchend; marks isTouchGestureRef so onClick is skipped.
   const handleTouchEnd = useCallback(
     (e: React.TouchEvent<HTMLDivElement>) => {
       if ((e.target as HTMLElement).closest("button")) return;
       isTouchGestureRef.current = true;
-      // Reset the flag after the synthetic click delay (~300ms) has passed.
       setTimeout(() => {
         isTouchGestureRef.current = false;
       }, 600);
@@ -410,11 +301,9 @@ export function VideoCard({
     [processTap],
   );
 
-  // Mouse path — only fires when the gesture was NOT from touch.
   const handleClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       if ((e.target as HTMLElement).closest("button")) return;
-      // Suppress the synthetic click that browsers emit after touchend.
       if (isTouchGestureRef.current) return;
       processTap(e.clientX, e.clientY);
     },
@@ -425,9 +314,16 @@ export function VideoCard({
     e.stopPropagation();
     const newMuted = !isMuted;
     onMuteChange(newMuted);
-    if (videoRef.current) {
-      videoRef.current.muted = newMuted;
+    if (videoRef.current) videoRef.current.muted = newMuted;
+  };
+
+  const handleLike = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!isAuthenticated) {
+      toast.error("Log in to like videos");
+      return;
     }
+    likeMutation.mutate();
   };
 
   const handleSendComment = async () => {
@@ -452,10 +348,8 @@ export function VideoCard({
     try {
       await navigator.clipboard.writeText(url);
       toast.success("Link copied!");
-      // Fire-and-forget share record
       if (actor && isAuthenticated) {
         void actor.recordShare(video.id);
-        // Optimistically bump share count
         queryClient.setQueryData(
           interactionQueryKey,
           (old: VideoInteractionState | null | undefined) => {
@@ -492,33 +386,27 @@ export function VideoCard({
     }
   };
 
+  const handleCreatorTap = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onNavigateToProfile?.(creatorPrincipalStr);
+  };
+
   return (
+    // biome-ignore lint/a11y/useKeyWithClickEvents: video feed uses touch/click for gesture detection
     <div
-      data-ocid="video.canvas_target"
       className="relative w-full h-full overflow-hidden select-none bg-black"
       onTouchEnd={handleTouchEnd}
       onClick={handleClick}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          if (videoRef.current) {
-            if (videoRef.current.paused) {
-              videoRef.current.play().catch(() => {});
-              setIsPlaying(true);
-            } else {
-              videoRef.current.pause();
-              setIsPlaying(false);
-            }
-          }
-        }
-      }}
       role="presentation"
     >
-      {/* Video or gradient background */}
+      {/* ── Video ──────────────────────────────────────────────────────────── */}
       {video.videoUrl ? (
         <video
           ref={videoRef}
           src={video.videoUrl}
-          className="absolute inset-0 w-full h-full object-contain"
+          className={`absolute inset-0 w-full h-full ${
+            aspectClass === "vertical" ? "object-cover" : "object-contain"
+          }`}
           autoPlay
           loop
           muted={isMuted}
@@ -527,7 +415,6 @@ export function VideoCard({
           onCanPlay={() => {
             if (videoRef.current) {
               videoRef.current.play().catch(() => {
-                // Autoplay blocked — fall back to muted
                 onMuteChange(true);
                 if (videoRef.current) {
                   videoRef.current.muted = true;
@@ -544,24 +431,14 @@ export function VideoCard({
           className="absolute inset-0 w-full h-full object-contain"
         />
       ) : (
-        <div
-          className={`absolute inset-0 bg-gradient-to-b ${gradient.from} ${gradient.to}`}
-        />
+        <div className="absolute inset-0 bg-gradient-to-b from-rose-900 to-pink-800" />
       )}
 
-      {/* Subtle vignette patterns */}
-      <div className="absolute inset-0 opacity-20 pointer-events-none">
-        <div className="absolute top-1/4 left-1/4 w-64 h-64 rounded-full blur-3xl bg-white/5" />
-        <div className="absolute bottom-1/3 right-1/4 w-48 h-48 rounded-full blur-2xl bg-white/5" />
-      </div>
-
-      {/* Bottom dark overlay for text readability */}
+      {/* Gradients */}
       <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-transparent pointer-events-none" />
+      <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-transparent pointer-events-none" />
 
-      {/* Top gradient for nav readability */}
-      <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-transparent pointer-events-none" />
-
-      {/* Heart burst animations */}
+      {/* Heart bursts */}
       {heartBursts.map((burst) => (
         <div
           key={burst.id}
@@ -577,7 +454,7 @@ export function VideoCard({
         </div>
       ))}
 
-      {/* Play indicator — shown when video is paused */}
+      {/* Play/Pause overlay */}
       <AnimatePresence>
         {!isPlaying && (
           <motion.div
@@ -591,29 +468,29 @@ export function VideoCard({
               className="w-16 h-16 rounded-full flex items-center justify-center"
               style={{ background: "rgba(0,0,0,0.55)" }}
             >
-              <Play size={28} className="text-white" fill="white" />
+              <svg
+                width="28"
+                height="28"
+                viewBox="0 0 24 24"
+                fill="white"
+                xmlns="http://www.w3.org/2000/svg"
+                className="ml-1"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <title>Play</title>
+                <polygon points="5,3 19,12 5,21" />
+              </svg>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Aspect ratio debug hint — only for non-vertical so user understands black bars */}
-      {aspectClass === "horizontal" && video.videoUrl && (
-        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
-          <span
-            className="text-[10px] text-white/30 px-2 py-0.5 rounded-full"
-            style={{ background: "rgba(0,0,0,0.3)" }}
-          >
-            16:9
-          </span>
-        </div>
-      )}
-
-      {/* Mute toggle — bottom left, above creator info */}
+      {/* ── Mute button ────────────────────────────────────────────────────── */}
       <div className="absolute bottom-36 left-4 z-10">
         <button
           type="button"
-          data-ocid="video.mute_toggle"
+          data-ocid="profile-player.mute_toggle"
           onClick={handleMuteToggle}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-full"
           style={{
@@ -632,14 +509,12 @@ export function VideoCard({
         </button>
       </div>
 
-      {/* Creator info — bottom left */}
+      {/* ── Creator info ────────────────────────────────────────────────────── */}
       <div className="absolute bottom-24 left-4 right-20 z-10">
-        {/* Clickable creator name */}
         <button
           type="button"
           onClick={handleCreatorTap}
           className="text-left mb-1 focus-visible:outline-none"
-          data-ocid="video.creator_link"
         >
           <p className="text-white font-bold text-base hover:text-white/80 transition-colors">
             {username ? `@${username}` : `@${displayName.toLowerCase()}`}
@@ -648,29 +523,27 @@ export function VideoCard({
         <p className="text-white/90 text-sm leading-snug mb-2 line-clamp-2 pointer-events-none">
           {video.caption || video.title}
         </p>
-        <div className="flex flex-wrap gap-1 mb-2 pointer-events-none">
-          {video.hashtags.map((tag) => (
-            <span
-              key={tag}
-              className="text-xs font-medium"
-              style={{ color: "#ff0050" }}
-            >
-              #{tag}
-            </span>
-          ))}
-        </div>
-        <div className="flex items-center gap-1.5 pointer-events-none">
-          <Music2 size={12} className="text-white/70 flex-shrink-0" />
-          <p className="text-white/70 text-xs truncate">Original audio</p>
-        </div>
+        {video.hashtags.length > 0 && (
+          <div className="flex flex-wrap gap-1 pointer-events-none">
+            {video.hashtags.map((tag) => (
+              <span
+                key={tag}
+                className="text-xs font-medium"
+                style={{ color: "#ff0050" }}
+              >
+                #{tag}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Right side icon stack */}
+      {/* ── Right-side icon stack ────────────────────────────────────────────── */}
       <div className="absolute bottom-28 right-3 z-10 flex flex-col items-center gap-5">
         {/* Like */}
         <button
           type="button"
-          data-ocid="video.like_button"
+          data-ocid="profile-player.like_button"
           onClick={handleLike}
           className="flex flex-col items-center gap-1 group"
           aria-label="Like"
@@ -692,13 +565,13 @@ export function VideoCard({
         {/* Comment */}
         <button
           type="button"
-          data-ocid="video.comment_button"
-          className="flex flex-col items-center gap-1 group"
-          aria-label="Comment"
+          data-ocid="profile-player.comment_button"
           onClick={(e) => {
             e.stopPropagation();
             setCommentPanelOpen(true);
           }}
+          className="flex flex-col items-center gap-1 group"
+          aria-label="Comment"
         >
           <div className="w-11 h-11 flex items-center justify-center">
             <MessageCircle
@@ -716,13 +589,13 @@ export function VideoCard({
         {/* Share */}
         <button
           type="button"
-          data-ocid="video.share_button"
-          className="flex flex-col items-center gap-1 group"
-          aria-label="Share"
+          data-ocid="profile-player.share_button"
           onClick={(e) => {
             e.stopPropagation();
             setShareSheetOpen(true);
           }}
+          className="flex flex-col items-center gap-1 group"
+          aria-label="Share"
         >
           <div className="w-11 h-11 flex items-center justify-center">
             <Share2
@@ -737,58 +610,12 @@ export function VideoCard({
           </span>
         </button>
 
-        {/* Bookmark */}
-        <button
-          type="button"
-          data-ocid="video.bookmark_button"
-          className="flex flex-col items-center gap-1 group"
-          aria-label="Bookmark"
-          onClick={handleBookmark}
-        >
-          <div className="w-11 h-11 flex items-center justify-center">
-            <Bookmark
-              size={26}
-              strokeWidth={2}
-              fill={bookmarked ? "#ff0050" : "none"}
-              stroke={bookmarked ? "#ff0050" : "white"}
-              className="transition-all duration-150 group-active:scale-125"
-            />
-          </div>
-          <span
-            className="text-xs font-medium"
-            style={{ color: bookmarked ? "#ff0050" : "white" }}
-          >
-            Save
-          </span>
-        </button>
-
-        {/* Gift */}
-        <button
-          type="button"
-          data-ocid="video.gift_button"
-          className="flex flex-col items-center gap-1 group"
-          aria-label="Gift"
-        >
-          <div className="w-11 h-11 flex items-center justify-center">
-            <Sparkles
-              size={26}
-              strokeWidth={2}
-              stroke="#ff0050"
-              className="transition-all duration-150 group-active:scale-125"
-            />
-          </div>
-          <span className="text-xs font-medium" style={{ color: "#ff0050" }}>
-            Gift
-          </span>
-        </button>
-
-        {/* Creator profile circle */}
+        {/* Creator avatar */}
         <div className="flex flex-col items-center gap-1">
           <button
             type="button"
-            data-ocid="video.creator_avatar"
             onClick={handleCreatorTap}
-            className="relative w-12 h-12 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 rounded-full"
+            className="w-12 h-12 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
             aria-label={`View ${displayName}'s profile`}
           >
             <div
@@ -809,66 +636,14 @@ export function VideoCard({
                 <span className="text-white text-sm font-bold">{initials}</span>
               )}
             </div>
-            {/* Online dot */}
-            <OnlineDot isOnline={isOnline} size={10} />
           </button>
-
-          {/* Follow button — only show if not own video */}
-          {!isOwnVideo && isAuthenticated && (
-            <button
-              type="button"
-              data-ocid="video.follow_button"
-              onClick={handleFollow}
-              disabled={followMutation.isPending}
-              className="px-2 py-0.5 rounded-full text-[10px] font-bold transition-all mt-0.5"
-              style={
-                isFollowingCreator
-                  ? {
-                      background: "transparent",
-                      border: "1px solid rgba(255,255,255,0.4)",
-                      color: "rgba(255,255,255,0.7)",
-                    }
-                  : {
-                      background:
-                        "linear-gradient(135deg, #ff0050 0%, #ff3366 100%)",
-                      border: "none",
-                      color: "white",
-                      boxShadow: "0 2px 8px rgba(255,0,80,0.4)",
-                    }
-              }
-              aria-label={isFollowingCreator ? "Unfollow" : "Follow"}
-            >
-              {followMutation.isPending ? (
-                <span className="flex items-center gap-0.5">
-                  <span className="w-2 h-2 rounded-full animate-pulse bg-white/60" />
-                </span>
-              ) : isFollowingCreator ? (
-                <span className="flex items-center gap-0.5">
-                  <UserCheck size={9} />
-                </span>
-              ) : (
-                "+"
-              )}
-            </button>
-          )}
-
-          {/* Plus badge for unauthenticated */}
-          {!isAuthenticated && (
-            <div
-              className="w-5 h-5 rounded-full flex items-center justify-center text-white text-xs font-bold -mt-3 relative z-10"
-              style={{ background: "#ff0050" }}
-            >
-              +
-            </div>
-          )}
         </div>
       </div>
 
-      {/* Comment panel bottom sheet */}
+      {/* ── Comment panel ──────────────────────────────────────────────────── */}
       <AnimatePresence>
         {commentPanelOpen && (
           <>
-            {/* Backdrop */}
             {/* biome-ignore lint/a11y/useKeyWithClickEvents: backdrop dismiss */}
             <div
               className="fixed inset-0 z-[190]"
@@ -893,15 +668,12 @@ export function VideoCard({
               }}
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Handle */}
               <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
                 <div
                   className="w-10 h-1 rounded-full"
                   style={{ background: "rgba(255,255,255,0.2)" }}
                 />
               </div>
-
-              {/* Header */}
               <div className="flex items-center justify-between px-4 py-3 flex-shrink-0">
                 <h3
                   className="text-white font-bold text-base"
@@ -911,7 +683,7 @@ export function VideoCard({
                 </h3>
                 <button
                   type="button"
-                  data-ocid="video.comment_panel_close_button"
+                  data-ocid="profile-player.comment_panel_close_button"
                   onClick={(e) => {
                     e.stopPropagation();
                     setCommentPanelOpen(false);
@@ -924,16 +696,12 @@ export function VideoCard({
                 </button>
               </div>
 
-              {/* Comments list */}
               <div
                 className="flex-1 overflow-y-auto px-4 pb-2"
                 style={{ scrollbarWidth: "none" }}
               >
                 {commentsLoading ? (
-                  <div
-                    data-ocid="video.comments_loading_state"
-                    className="flex flex-col items-center justify-center py-12 gap-3"
-                  >
+                  <div className="flex flex-col items-center justify-center py-12 gap-3">
                     <div
                       className="w-8 h-8 rounded-full animate-pulse"
                       style={{ background: "rgba(255,0,80,0.3)" }}
@@ -941,10 +709,7 @@ export function VideoCard({
                     <p className="text-white/40 text-sm">Loading comments…</p>
                   </div>
                 ) : realComments.length === 0 ? (
-                  <div
-                    data-ocid="video.comments_empty_state"
-                    className="flex flex-col items-center justify-center py-12 gap-3"
-                  >
+                  <div className="flex flex-col items-center justify-center py-12 gap-3">
                     <MessageCircle size={36} className="text-white/20" />
                     <p className="text-white/40 text-sm text-center">
                       No comments yet. Be the first!
@@ -954,17 +719,13 @@ export function VideoCard({
                   <div className="space-y-4">
                     {realComments.map((comment, idx) => {
                       const authorStr = comment.author.toString();
-                      const authorInitials = authorStr
-                        .slice(0, 4)
-                        .toUpperCase();
                       const relTime = formatRelativeTime(comment.createdAt);
                       return (
                         <div
                           key={comment.id.toString()}
-                          data-ocid={`video.comment.item.${idx + 1}`}
+                          data-ocid={`profile-player.comment.item.${idx + 1}`}
                           className="flex items-start gap-3"
                         >
-                          {/* Avatar */}
                           <div
                             className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-white text-[10px] font-bold"
                             style={{
@@ -972,9 +733,8 @@ export function VideoCard({
                                 "linear-gradient(135deg, #ff0050, #ff6b35)",
                             }}
                           >
-                            {authorInitials}
+                            {authorStr.slice(0, 4).toUpperCase()}
                           </div>
-                          {/* Content */}
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-0.5">
                               <span
@@ -994,7 +754,6 @@ export function VideoCard({
                               {comment.text}
                             </p>
                           </div>
-                          {/* Like (local UI only for comments) */}
                           <button
                             type="button"
                             className="flex-shrink-0 flex flex-col items-center gap-0.5"
@@ -1018,7 +777,6 @@ export function VideoCard({
                 )}
               </div>
 
-              {/* Input bar */}
               <div
                 className="flex items-center gap-2 px-4 py-3 flex-shrink-0"
                 style={{
@@ -1028,7 +786,7 @@ export function VideoCard({
               >
                 <input
                   type="text"
-                  data-ocid="video.comment_input"
+                  data-ocid="profile-player.comment_input"
                   value={commentText}
                   onChange={(e) => setCommentText(e.target.value)}
                   onKeyDown={(e) => {
@@ -1045,7 +803,7 @@ export function VideoCard({
                 />
                 <button
                   type="button"
-                  data-ocid="video.comment_submit_button"
+                  data-ocid="profile-player.comment_submit_button"
                   onClick={(e) => {
                     e.stopPropagation();
                     void handleSendComment();
@@ -1067,11 +825,10 @@ export function VideoCard({
         )}
       </AnimatePresence>
 
-      {/* Share sheet */}
+      {/* ── Share sheet ─────────────────────────────────────────────────────── */}
       <AnimatePresence>
         {shareSheetOpen && (
           <>
-            {/* Backdrop */}
             {/* biome-ignore lint/a11y/useKeyWithClickEvents: backdrop dismiss */}
             <div
               className="fixed inset-0 z-[190]"
@@ -1095,15 +852,12 @@ export function VideoCard({
               }}
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Handle */}
               <div className="flex justify-center pt-3 pb-1">
                 <div
                   className="w-10 h-1 rounded-full"
                   style={{ background: "rgba(255,255,255,0.2)" }}
                 />
               </div>
-
-              {/* Header */}
               <div className="flex items-center justify-between px-4 py-3">
                 <h3
                   className="text-white font-bold text-base"
@@ -1113,7 +867,6 @@ export function VideoCard({
                 </h3>
                 <button
                   type="button"
-                  data-ocid="video.share_sheet_close_button"
                   onClick={(e) => {
                     e.stopPropagation();
                     setShareSheetOpen(false);
@@ -1125,8 +878,6 @@ export function VideoCard({
                   <X size={16} />
                 </button>
               </div>
-
-              {/* Options */}
               <div className="px-4 pb-8 space-y-2">
                 {[
                   {
@@ -1134,14 +885,14 @@ export function VideoCard({
                     label: "Copy Link",
                     sub: "Copy video link to clipboard",
                     action: handleCopyLink,
-                    ocid: "video.share_copy_button",
+                    ocid: "profile-player.share_copy_button",
                   },
                   {
                     icon: <Share2 size={20} className="text-white" />,
                     label: "Share to Platforms",
                     sub: "Use device share sheet",
                     action: handleNativeShare,
-                    ocid: "video.share_platforms_button",
+                    ocid: "profile-player.share_platforms_button",
                   },
                   {
                     icon: <Send size={20} className="text-white" />,
@@ -1151,7 +902,7 @@ export function VideoCard({
                       toast.info("Coming soon!");
                       setShareSheetOpen(false);
                     },
-                    ocid: "video.share_friends_button",
+                    ocid: "profile-player.share_friends_button",
                   },
                 ].map(({ icon, label, sub, action, ocid }) => (
                   <button
@@ -1195,5 +946,230 @@ export function VideoCard({
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+// ── VideoDurationBadge ─────────────────────────────────────────────────────────
+
+export function VideoDurationBadge({ videoUrl }: { videoUrl: string }) {
+  const [duration, setDuration] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+
+    function onMeta() {
+      if (!el || Number.isNaN(el.duration)) return;
+      const totalSec = Math.floor(el.duration);
+      const mins = Math.floor(totalSec / 60);
+      const secs = totalSec % 60;
+      setDuration(
+        `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`,
+      );
+    }
+
+    el.addEventListener("loadedmetadata", onMeta);
+    if (el.readyState >= 1) onMeta();
+    return () => el.removeEventListener("loadedmetadata", onMeta);
+  }, []);
+
+  if (!videoUrl) return null;
+
+  return (
+    <>
+      {/* Hidden video just for metadata */}
+      <video
+        ref={videoRef}
+        src={videoUrl}
+        preload="metadata"
+        className="hidden"
+        muted
+        playsInline
+        tabIndex={-1}
+        aria-label="Video duration loader"
+      />
+      {duration && (
+        <span
+          className="absolute bottom-1 right-1 text-white text-[10px] font-medium px-1.5 py-0.5 rounded-sm pointer-events-none"
+          style={{ background: "rgba(0,0,0,0.65)" }}
+        >
+          {duration}
+        </span>
+      )}
+    </>
+  );
+}
+
+// ── ProfileVideoPlayer ────────────────────────────────────────────────────────
+
+export function ProfileVideoPlayer({
+  videos,
+  initialIndex,
+  onClose,
+  isAuthenticated,
+  onNavigateToProfile,
+}: ProfileVideoPlayerProps) {
+  const { actor } = useAuth();
+  const [currentIndex, setCurrentIndex] = useState(
+    Math.max(0, Math.min(initialIndex, videos.length - 1)),
+  );
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [showSwipeHint, setShowSwipeHint] = useState(true);
+
+  const touchStartY = useRef<number | null>(null);
+  const touchStartTime = useRef<number>(0);
+  const swipedRef = useRef(false);
+
+  // Auto-hide swipe hint after 3 seconds
+  useEffect(() => {
+    if (!showSwipeHint) return;
+    const timer = setTimeout(() => setShowSwipeHint(false), 3000);
+    return () => clearTimeout(timer);
+  }, [showSwipeHint]);
+
+  // Increment view count when a video becomes active
+  useEffect(() => {
+    const video = videos[currentIndex];
+    if (!video || !actor || !isAuthenticated) return;
+    void actor.incrementViewCount(video.id).catch(() => {});
+  }, [currentIndex, videos, actor, isAuthenticated]);
+
+  const goToIndex = useCallback(
+    (newIndex: number) => {
+      if (isTransitioning) return;
+      if (newIndex < 0 || newIndex >= videos.length) return;
+
+      setIsTransitioning(true);
+      setCurrentIndex(newIndex);
+      setTimeout(() => setIsTransitioning(false), 350);
+    },
+    [isTransitioning, videos.length],
+  );
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    // If a button was the target, skip
+    if ((e.target as HTMLElement).closest("button")) return;
+    touchStartY.current = e.touches[0]?.clientY ?? null;
+    touchStartTime.current = Date.now();
+    swipedRef.current = false;
+  }, []);
+
+  const handleTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      if (touchStartY.current === null) return;
+      if ((e.target as HTMLElement).closest("button")) return;
+
+      const deltaY = touchStartY.current - (e.changedTouches[0]?.clientY ?? 0);
+      const elapsed = Date.now() - touchStartTime.current;
+
+      const isFastSwipe = elapsed < 200 && Math.abs(deltaY) > 25;
+      const isSignificantSwipe = Math.abs(deltaY) > 60;
+
+      if (isFastSwipe || isSignificantSwipe) {
+        swipedRef.current = true;
+        // Hide hint as soon as user swipes
+        setShowSwipeHint(false);
+        if (deltaY > 0) {
+          goToIndex(currentIndex + 1);
+        } else {
+          goToIndex(currentIndex - 1);
+        }
+      }
+
+      touchStartY.current = null;
+    },
+    [currentIndex, goToIndex],
+  );
+
+  const currentVideo = videos[currentIndex];
+  if (!currentVideo) return null;
+
+  return (
+    <motion.div
+      data-ocid="profile-player.canvas_target"
+      className="fixed inset-0 z-50 bg-black"
+      initial={{ y: "100%" }}
+      animate={{ y: 0 }}
+      exit={{ y: "100%" }}
+      transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+    >
+      {/* ── Close button ──────────────────────────────────────────────────── */}
+      <button
+        type="button"
+        data-ocid="profile-player.close_button"
+        onClick={onClose}
+        className="absolute top-12 left-4 z-[60] w-10 h-10 rounded-full flex items-center justify-center"
+        style={{
+          background: "rgba(0,0,0,0.55)",
+          backdropFilter: "blur(8px)",
+          WebkitBackdropFilter: "blur(8px)",
+          border: "1px solid rgba(255,255,255,0.15)",
+        }}
+        aria-label="Close player"
+      >
+        <X size={20} className="text-white" />
+      </button>
+
+      {/* ── Progress dots ─────────────────────────────────────────────────── */}
+      <div className="absolute right-2 top-1/2 -translate-y-1/2 z-[60] pointer-events-none">
+        <ProgressDots total={videos.length} current={currentIndex} />
+      </div>
+
+      {/* ── Video panel with fade transition ─────────────────────────────── */}
+      <div
+        className="w-full h-full transition-opacity duration-300"
+        style={{ opacity: isTransitioning ? 0 : 1 }}
+      >
+        <VideoPanel
+          key={currentVideo.id.toString()}
+          video={currentVideo}
+          isAuthenticated={isAuthenticated}
+          isMuted={isMuted}
+          onMuteChange={setIsMuted}
+          onNavigateToProfile={onNavigateToProfile}
+        />
+      </div>
+
+      {/* ── Swipe hint indicator ─────────────────────────────────────────── */}
+      <AnimatePresence>
+        {showSwipeHint && currentIndex < videos.length - 1 && (
+          <motion.div
+            data-ocid="profile-player.swipe_hint"
+            className="absolute bottom-20 left-0 right-0 flex flex-col items-center gap-1 pointer-events-none z-[55]"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <motion.div
+              animate={{ y: [0, -6, 0] }}
+              transition={{
+                duration: 1.1,
+                repeat: Number.POSITIVE_INFINITY,
+                ease: "easeInOut",
+              }}
+              className="flex flex-col items-center gap-1"
+            >
+              <ChevronUp size={22} className="text-white/70" />
+              <span
+                className="text-white/60 text-xs font-medium px-3 py-1 rounded-full"
+                style={{
+                  background: "rgba(0,0,0,0.45)",
+                  backdropFilter: "blur(6px)",
+                  WebkitBackdropFilter: "blur(6px)",
+                  fontFamily: "'Bricolage Grotesque', sans-serif",
+                }}
+              >
+                Swipe up for next
+              </span>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
   );
 }

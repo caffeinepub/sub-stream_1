@@ -1,38 +1,86 @@
-# Sub Stream
+# SUB STREAM — Creator Profile Video Gallery
 
 ## Current State
-- Full mobile-first vertical video social app with video feed, live streaming discovery, inbox, and profile page
-- Auth via Internet Identity (login/register with email, persistent session)
-- Profile page: circular avatar with online dot, display name, @username, bio, stats, video grid tabs
-- Backend: User, Video, Comment types; follow system; online presence heartbeat
-- No Stories system exists
+
+Both `ProfilePage.tsx` (own profile) and `UserProfilePage.tsx` (other creator's profile) contain a `VideoGrid` / basic video grid that:
+- Fetches videos via `actor.getAllVideos()` (own) or `actor.getUserVideos(principal)` (other)
+- Renders a 3-column grid of `aspect-[9/16]` tiles
+- Shows thumbnail image (if available) + a Play/view count badge in the bottom-left
+- Empty state shows "No videos yet"
+- Tapping a tile does nothing (no video player opens)
+- No video duration indicator on thumbnails
+- No fullscreen video player with swipe navigation from the profile
+- No swipe-up hint indicator
+
+The existing `VideoCard` component and `VideoFeed` (the main feed) already implement:
+- Fullscreen video playback with single-tap pause/play, double-tap like
+- Swipe up/down navigation between videos
+- Right-side interaction icons (Like, Comment, Share, Gift, Bookmark)
+- Comment and share bottom sheets
+- Creator info overlay
 
 ## Requested Changes (Diff)
 
 ### Add
-- **Story data model** on backend: Story type with id, creator, mediaUrl, mediaType (photo/video), textOverlay, emojiOverlays, expiresAt (24h TTL), viewedBy (Set of Principal)
-- **Backend story APIs**: addStory, getActiveStories (returns non-expired stories for all users), getMyStories, deleteStory, markStoryViewed
-- **StoryRing component**: circular avatar with gradient colored ring (has story) or grey ring (all viewed) or plain ring (no story). Also shows "+" badge when no story
-- **StoryCreator screen**: full-screen modal for creating photo/video stories; supports upload photo, upload video (max 2 min), record video, add text overlay, add emoji picker
-- **StoryViewer screen**: fullscreen story viewer with progress bars at top, profile info overlay (avatar, display name, @username, time), tap left/right navigation, swipe left/right between users, auto-advance between stories and users
-- **Own-profile story options sheet**: when owner taps their own avatar — Add Story / View Story / Delete Story options
-- **Stories row on home feed**: horizontal scrollable row of story rings from followed users + own story at front
-- **Story expiration**: 24-hour TTL enforced both on backend (filter) and frontend (display)
+- `ProfileVideoPlayer` component: a fullscreen video player modal that opens when a thumbnail is tapped on the profile page. It accepts a list of videos and a starting index, and supports:
+  - Immediate autoplay of the selected video
+  - Swipe up → next video, swipe down → previous video (same gesture logic as VideoFeed)
+  - Single tap → pause/play with Play overlay
+  - Double tap → like with heart burst animation
+  - Tap comment icon → open comments bottom sheet
+  - Tap share icon → open share bottom sheet
+  - Swipe-up gesture indicator (animated arrow + "Swipe up for next" text) that fades out after a few seconds for new users to discover navigation
+  - Back/close button (X) to return to the profile
+  - Right-side icons: Like, Comment, Share (same style as VideoCard)
+  - Creator info overlay at bottom-left (username, caption, hashtags)
+  - Uses `actor.getVideosByCreator` for the video list so it's scoped to the creator
+
+- Duration overlay on each thumbnail in the grid:
+  - Extract video duration using an `<video>` element's `onLoadedMetadata` event (lazy — only when in viewport or already loaded)
+  - Format as `MM:SS` (e.g., `00:32`)
+  - Displayed at bottom-right of thumbnail
+  - View count (if > 0) displayed at bottom-left with Play icon
 
 ### Modify
-- **ProfilePage**: replace plain avatar with StoryRing component; tapping own avatar shows options sheet (Add Story / View Story / Delete Story); tapping another user's avatar opens StoryViewer
-- **App.tsx**: add "story-creator" and "story-viewer" to Screen type; wire up new screens
-- **Backend main.mo**: add Story type, story storage, and story API functions
+- `ProfilePage.tsx` → `VideoGrid` component:
+  - Make each thumbnail tap open `ProfileVideoPlayer` at the tapped video index
+  - Add duration badge (bottom-right corner)
+  - Keep view count badge (bottom-left corner)
+  - Use `actor.getAllVideos()` filtered to own creator principal for the player list (already fetched)
+
+- `UserProfilePage.tsx` → video grid section:
+  - Extract into a reusable component or apply same tap-to-play pattern
+  - Make each thumbnail tap open `ProfileVideoPlayer` at the tapped video index
+  - Add duration badge (bottom-right corner)
+  - Keep view count badge (bottom-left corner)
+  - Video list scoped to the viewed creator
 
 ### Remove
-- Nothing removed
+- Nothing removed; existing VideoGrid structure is kept and enhanced
 
 ## Implementation Plan
-1. Regenerate backend to add Story type and story CRUD/query APIs
-2. Create `StoryRing` component — handles ring color (gradient/grey/none) and "+" badge
-3. Create `StoryCreator` page — photo upload, video upload/record, text+emoji overlay, post button
-4. Create `StoryViewer` page — fullscreen viewer, progress bars, nav controls, swipe gestures, auto-advance
-5. Create `StoryOptionsSheet` component — owner taps own avatar → Add/View/Delete options
-6. Update `ProfilePage` to use StoryRing and wire tapping behavior
-7. Update `App.tsx` to add story-creator and story-viewer screens
-8. Add stories horizontal row to the home feed top area
+
+1. Create `src/frontend/src/components/ProfileVideoPlayer.tsx`:
+   - Props: `videos: Video[]`, `initialIndex: number`, `onClose: () => void`, `isAuthenticated: boolean`, `onNavigateToProfile?: (p: string) => void`
+   - Renders fullscreen overlay (fixed, inset-0, z-50, bg-black)
+   - Reuses VideoCard internals (gesture handling, heart burst, comment/share panels, right-side icons) — can import VideoCard and pass isMuted/onMuteChange; or inline the player logic
+   - Swipe up/down navigation between videos in the provided array
+   - Close button top-left
+   - Swipe-up indicator: animated chevron-up + label, visible for first 3s or until user swipes, then fades out permanently (stored in local state)
+   - Uses `data-ocid` markers: `profile-player.canvas_target`, `profile-player.close_button`, `profile-player.item.{n}`, `profile-player.swipe_hint`
+
+2. Update `ProfilePage.tsx` → `VideoGrid`:
+   - Add `onVideoTap: (index: number) => void` prop
+   - Add `VideoDurationBadge` sub-component that lazily reads video duration from a hidden `<video>` element (loads `src={video.videoUrl}` with `preload="metadata"`) and displays `MM:SS`
+   - Wire tap on each tile to call `onVideoTap(i)`
+   - In `ProfilePage`, manage `playerOpen: boolean` and `playerIndex: number` state
+   - Render `<ProfileVideoPlayer>` conditionally with AnimatePresence
+
+3. Update `UserProfilePage.tsx` → video grid section:
+   - Same VideoDurationBadge + tap-to-open pattern
+   - Pass `videos` (already fetched via `getUserVideos`) to `ProfileVideoPlayer`
+   - Manage `playerOpen` / `playerIndex` state
+
+4. Ensure `ProfileVideoPlayer` uses `actor.incrementViewCount` when a video becomes active, same as the main feed.
+
+5. Add CSS animation for swipe-up hint (bounce-up keyframes) via Tailwind `animate-bounce` or custom inline animation.

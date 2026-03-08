@@ -6,9 +6,15 @@ type Tab = (typeof TABS)[number];
 
 interface TopNavProps {
   onNavigate?: (tab: string) => void;
+  onSearch?: () => void;
+  searchActive?: boolean;
 }
 
-export function TopNav({ onNavigate }: TopNavProps = {}) {
+export function TopNav({
+  onNavigate,
+  onSearch,
+  searchActive,
+}: TopNavProps = {}) {
   const [activeTab, setActiveTab] = useState<Tab>("For You");
 
   const handleTabClick = (tab: Tab) => {
@@ -55,7 +61,9 @@ export function TopNav({ onNavigate }: TopNavProps = {}) {
       <button
         type="button"
         data-ocid="topnav.search_input"
-        className="w-8 h-8 flex items-center justify-center text-white hover:text-white/80 transition-colors"
+        onClick={() => onSearch?.()}
+        className="w-8 h-8 flex items-center justify-center transition-colors"
+        style={{ color: searchActive ? "#ff0050" : "white" }}
         aria-label="Search"
       >
         <Search size={20} strokeWidth={2} />

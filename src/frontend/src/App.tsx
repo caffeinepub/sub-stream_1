@@ -8,6 +8,7 @@ import { TopNav } from "./components/TopNav";
 import { VideoFeed } from "./components/VideoFeed";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import type { LiveStream } from "./data/liveStreams";
+import { CreateFlowPage } from "./pages/CreateFlowPage";
 import { GoLiveSetupPage } from "./pages/GoLiveSetupPage";
 import { InboxPage } from "./pages/InboxPage";
 import { LiveDiscoveryPage } from "./pages/LiveDiscoveryPage";
@@ -15,8 +16,11 @@ import { LiveStreamViewPage } from "./pages/LiveStreamViewPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { RegisterPage } from "./pages/RegisterPage";
+import { SearchPage } from "./pages/SearchPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { UserProfilePage } from "./pages/UserProfilePage";
 import { UsernameSetupPage } from "./pages/UsernameSetupPage";
+import { VideoUploadPage } from "./pages/VideoUploadPage";
 
 type Screen =
   | "login"
@@ -28,7 +32,12 @@ type Screen =
   | "settings"
   | "live"
   | "live-view"
-  | "go-live-setup";
+  | "go-live-setup"
+  | "upload-video"
+  | "video-editor"
+  | "create-flow"
+  | "user-profile"
+  | "search";
 
 // ─── Loading Screen ────────────────────────────────────────────────────────────
 function LoadingScreen() {
@@ -110,10 +119,31 @@ function AppShell() {
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedStream, setSelectedStream] = useState<LiveStream | null>(null);
   const [isHostStream, setIsHostStream] = useState(false);
+  const [viewingProfilePrincipal, setViewingProfilePrincipal] = useState<
+    string | null
+  >(null);
 
-  // Map bottom nav tabs to screens — use effectiveScreen once it's computed
-  // (computed below after the auth checks, but we need it here for BottomNav)
-  // We compute a preliminary value here using the raw screen state
+  const handleJoinLiveFromProfile = (
+    principalStr: string,
+    displayName: string,
+  ) => {
+    const newStream: LiveStream = {
+      id: principalStr,
+      hostName: displayName,
+      hostAvatar: "",
+      title: `${displayName}'s Live Stream`,
+      category: "Live",
+      viewerCount: Math.floor(Math.random() * 3000) + 100,
+      gradientFrom: "from-rose-900",
+      gradientTo: "to-pink-900",
+      isHost: false,
+    };
+    setSelectedStream(newStream);
+    setIsHostStream(false);
+    setScreen("live-view");
+  };
+
+  // Map bottom nav tabs to screens
   const _rawEffectiveScreen: Screen =
     screen === "login" || screen === "register" ? "feed" : screen;
   const bottomActive: BottomNavScreen =
@@ -127,7 +157,6 @@ function AppShell() {
 
   const handleBottomNav = (s: BottomNavScreen) => {
     if (s === "profile") {
-      // Always go to profile since we only reach AppShell when authenticated
       setScreen("profile");
     } else if (s === "friends") {
       setScreen("friends");
@@ -148,7 +177,7 @@ function AppShell() {
     return <LoadingScreen />;
   }
 
-  // Username setup: authenticated but no username yet — show once, then never again
+  // Username setup: authenticated but no username yet
   if (isAuthenticated && needsUsername) {
     return (
       <motion.div
@@ -165,7 +194,6 @@ function AppShell() {
   }
 
   // Auth screens — only show when NOT authenticated
-  // If authenticated, always skip auth screens and go straight to main app
   if (!isAuthenticated) {
     if (screen === "register") {
       return (
@@ -182,7 +210,6 @@ function AppShell() {
       );
     }
 
-    // Default: show login for any unauthenticated state
     return (
       <motion.div
         key="login"
@@ -197,13 +224,64 @@ function AppShell() {
     );
   }
 
-  // If authenticated user somehow has screen set to login/register (e.g. after page refresh),
-  // treat it as feed — they are logged in and should see the main app
   const effectiveScreen: Screen =
     screen === "login" || screen === "register" ? "feed" : screen;
 
   return (
     <AnimatePresence mode="wait">
+      {/* Create Flow (3-step: camera → editor → publish) */}
+      {effectiveScreen === "create-flow" && (
+        <motion.div
+          key="create-flow"
+          initial={{ opacity: 0, y: 40 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 40 }}
+          transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+          className="fixed inset-0 z-50"
+        >
+          <CreateFlowPage
+            onBack={() => setScreen("feed")}
+            onDone={() => setScreen("feed")}
+            onGoLive={() => setScreen("go-live-setup")}
+          />
+        </motion.div>
+      )}
+
+      {/* Upload Video page (legacy — kept for backward compat) */}
+      {effectiveScreen === "upload-video" && (
+        <motion.div
+          key="upload-video"
+          initial={{ opacity: 0, y: 40 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 40 }}
+          transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+          className="fixed inset-0 z-50"
+        >
+          <VideoUploadPage
+            onBack={() => setScreen("feed")}
+            onUploaded={() => setScreen("feed")}
+          />
+        </motion.div>
+      )}
+
+      {/* User Profile page */}
+      {effectiveScreen === "user-profile" && viewingProfilePrincipal && (
+        <motion.div
+          key="user-profile"
+          initial={{ opacity: 0, x: 60 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: 60 }}
+          transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+          className="fixed inset-0 z-40 overflow-y-auto"
+          style={{ background: "#000" }}
+        >
+          <UserProfilePage
+            principalStr={viewingProfilePrincipal}
+            onBack={() => setScreen("feed")}
+          />
+        </motion.div>
+      )}
+
       {/* Profile page */}
       {effectiveScreen === "profile" && (
         <motion.div
@@ -275,7 +353,7 @@ function AppShell() {
           transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
           className="fixed inset-0 z-10 overflow-y-auto"
         >
-          <InboxPage />
+          <InboxPage onJoinLiveStream={handleJoinLiveFromProfile} />
           <BottomNav
             activeScreen="inbox"
             onOpenCreate={() => setCreateOpen(true)}
@@ -284,7 +362,28 @@ function AppShell() {
         </motion.div>
       )}
 
-      {/* Main feed — shown for feed screen or any authenticated screen that doesn't match above */}
+      {/* Search page */}
+      {effectiveScreen === "search" && (
+        <motion.div
+          key="search"
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -20 }}
+          transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+          className="fixed inset-0 z-30"
+          style={{ background: "#000" }}
+        >
+          <SearchPage
+            onBack={() => setScreen("feed")}
+            onNavigateToProfile={(principalStr) => {
+              setViewingProfilePrincipal(principalStr);
+              setScreen("user-profile");
+            }}
+          />
+        </motion.div>
+      )}
+
+      {/* Main feed */}
       {effectiveScreen === "feed" && (
         <motion.div
           key="feed"
@@ -294,11 +393,20 @@ function AppShell() {
           transition={{ duration: 0.25 }}
           className="relative w-full h-screen overflow-hidden bg-black"
         >
-          <VideoFeed onOpenCreate={() => setCreateOpen(true)} />
+          <VideoFeed
+            onOpenCreate={() => setCreateOpen(true)}
+            onNavigateToProfile={(principalStr) => {
+              setViewingProfilePrincipal(principalStr);
+              setScreen("user-profile");
+            }}
+            onJoinLiveStream={handleJoinLiveFromProfile}
+          />
           <TopNav
             onNavigate={(tab) => {
               if (tab === "LIVE") setScreen("live");
             }}
+            onSearch={() => setScreen("search")}
+            searchActive={screen === "search"}
           />
           <BottomNav
             activeScreen={bottomActive}
@@ -309,6 +417,14 @@ function AppShell() {
             open={createOpen}
             onClose={() => setCreateOpen(false)}
             onGoLive={() => setScreen("go-live-setup")}
+            onUploadVideo={() => {
+              setCreateOpen(false);
+              setScreen("create-flow");
+            }}
+            onRecordShort={() => {
+              setCreateOpen(false);
+              setScreen("create-flow");
+            }}
           />
         </motion.div>
       )}
@@ -339,11 +455,19 @@ function AppShell() {
             open={createOpen}
             onClose={() => setCreateOpen(false)}
             onGoLive={() => setScreen("go-live-setup")}
+            onUploadVideo={() => {
+              setCreateOpen(false);
+              setScreen("create-flow");
+            }}
+            onRecordShort={() => {
+              setCreateOpen(false);
+              setScreen("create-flow");
+            }}
           />
         </motion.div>
       )}
 
-      {/* Live stream view — fullscreen, no nav bars */}
+      {/* Live stream view */}
       {effectiveScreen === "live-view" && selectedStream && (
         <motion.div
           key="live-view"

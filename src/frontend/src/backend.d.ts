@@ -67,6 +67,19 @@ export interface Story {
     mediaType: string;
     viewerCount: bigint;
 }
+export interface VideoInteractionState {
+    likeCount: bigint;
+    liked: boolean;
+    shareCount: bigint;
+    commentCount: bigint;
+    bookmarked: boolean;
+}
+export interface ConversationSummary {
+    lastMessageAt: bigint;
+    lastMessage: string;
+    otherUser: Principal;
+    unreadCount: bigint;
+}
 export interface UserProfile {
     bio: string;
     name: string;
@@ -76,6 +89,14 @@ export interface UserProfile {
     followerCount: bigint;
     followingCount: bigint;
     lastSeen: bigint;
+}
+export interface DirectMessage {
+    id: bigint;
+    createdAt: bigint;
+    text: string;
+    isRead: boolean;
+    toUser: Principal;
+    fromUser: Principal;
 }
 export enum UserRole {
     admin = "admin",
@@ -96,8 +117,11 @@ export interface backendInterface {
     getCallerUserProfile(): Promise<UserProfile | null>;
     getCallerUserRole(): Promise<UserRole>;
     getComments(videoId: bigint): Promise<Array<Comment>>;
+    getConversation(otherUser: Principal): Promise<Array<DirectMessage>>;
+    getConversations(): Promise<Array<ConversationSummary>>;
     getFileById(fileId: bigint): Promise<FileMetadata | null>;
     getFilesByCreator(creator: Principal): Promise<Array<FileMetadata>>;
+    getFollowerCount(userId: Principal): Promise<bigint>;
     getFollowers(userId: Principal): Promise<Array<Principal>>;
     getFollowing(userId: Principal): Promise<Array<Principal>>;
     getMyStories(): Promise<Array<Story>>;
@@ -105,19 +129,31 @@ export interface backendInterface {
     getStoriesByUser(userId: Principal): Promise<Array<Story>>;
     getStoryViewCount(storyId: bigint): Promise<bigint>;
     getUser(id: Principal): Promise<User | null>;
+    getUserBookmarks(): Promise<Array<Video>>;
     getUserByEmail(email: string): Promise<User | null>;
-    getUserPresenceStatus(): Promise<boolean>;
+    getUserPresenceStatus(userId: Principal): Promise<{
+        isOnline: boolean;
+        lastSeen: bigint;
+    } | null>;
     getUserProfile(user: Principal): Promise<UserProfile | null>;
+    getUserVideos(userId: Principal): Promise<Array<Video>>;
     getUsersWithActiveStories(): Promise<Array<Principal>>;
+    getVideoCount(userId: Principal): Promise<bigint>;
+    getVideoInteractionState(videoId: bigint): Promise<VideoInteractionState | null>;
     getVideosByCreator(creator: Principal): Promise<Array<Video>>;
     hasViewedStory(storyId: bigint): Promise<boolean>;
     incrementViewCount(videoId: bigint): Promise<void>;
     isCallerAdmin(): Promise<boolean>;
-    isFollowing(userId: Principal): Promise<boolean | null>;
+    isFollowing(userId: Principal): Promise<boolean>;
     likeVideo(videoId: bigint): Promise<void>;
+    markConversationRead(otherUser: Principal): Promise<void>;
     markStoryViewed(storyId: bigint): Promise<void>;
+    recordShare(videoId: bigint): Promise<void>;
     registerUser(name: string, email: string, passwordHash: string): Promise<void>;
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
+    sendMessage(toUser: Principal, text: string): Promise<bigint>;
+    toggleBookmarkVideo(videoId: bigint): Promise<boolean>;
+    toggleLikeVideo(videoId: bigint): Promise<boolean>;
     unfollow(userId: Principal): Promise<void>;
     unlikeVideo(videoId: bigint): Promise<void>;
     updateOnlineStatus(isOnline: boolean): Promise<void>;

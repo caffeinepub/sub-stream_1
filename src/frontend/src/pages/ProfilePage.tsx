@@ -15,6 +15,10 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { Story, Video } from "../backend.d";
 import { OnlineDot } from "../components/OnlineDot";
+import {
+  ProfileVideoPlayer,
+  VideoDurationBadge,
+} from "../components/ProfileVideoPlayer";
 import { StoryOptionsSheet } from "../components/StoryOptionsSheet";
 import { StoryRing } from "../components/StoryRing";
 import { useAuth } from "../context/AuthContext";
@@ -148,6 +152,10 @@ export function ProfilePage({ onBack, onSettings }: ProfilePageProps) {
     },
     enabled: !!actor && isAuthenticated,
   });
+
+  // Profile video player state
+  const [playerOpen, setPlayerOpen] = useState(false);
+  const [playerIndex, setPlayerIndex] = useState(0);
 
   const rawName = userProfile?.name || "";
   const displayName = getDisplayName(rawName) || "ANONYMOUS";
@@ -689,7 +697,14 @@ export function ProfilePage({ onBack, onSettings }: ProfilePageProps) {
       {/* Tab content */}
       <div className="flex-1 px-1 pt-2 pb-24">
         {activeTab === "videos" && (
-          <VideoGrid videos={videos} isLoading={isLoading} />
+          <VideoGrid
+            videos={videos}
+            isLoading={isLoading}
+            onVideoTap={(i) => {
+              setPlayerIndex(i);
+              setPlayerOpen(true);
+            }}
+          />
         )}
         {activeTab === "shorts" && <ComingSoonPlaceholder label="Shorts" />}
         {activeTab === "replays" && (
@@ -733,6 +748,19 @@ export function ProfilePage({ onBack, onSettings }: ProfilePageProps) {
           />
         )}
       </AnimatePresence>
+
+      {/* Profile Video Player overlay */}
+      <AnimatePresence>
+        {playerOpen && videos.length > 0 && (
+          <ProfileVideoPlayer
+            key="profile-video-player"
+            videos={videos}
+            initialIndex={playerIndex}
+            onClose={() => setPlayerOpen(false)}
+            isAuthenticated={isAuthenticated}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -758,7 +786,12 @@ function StatPill({
 function VideoGrid({
   videos,
   isLoading,
-}: { videos: Video[]; isLoading: boolean }) {
+  onVideoTap,
+}: {
+  videos: Video[];
+  isLoading: boolean;
+  onVideoTap: (index: number) => void;
+}) {
   if (isLoading) {
     return (
       <div
@@ -788,7 +821,7 @@ function VideoGrid({
         >
           <Play size={28} style={{ color: "#ff0050" }} />
         </div>
-        <p className="text-white/50 text-sm">No videos yet</p>
+        <p className="text-white/50 text-sm">No videos yet.</p>
         <p className="text-white/25 text-xs mt-1">
           Upload your first video to get started
         </p>
@@ -799,10 +832,13 @@ function VideoGrid({
   return (
     <div className="grid grid-cols-3 gap-0.5 mt-1">
       {videos.map((video, i) => (
-        <div
+        <button
           key={video.id.toString()}
+          type="button"
           data-ocid={`profile.item.${i + 1}`}
-          className={`aspect-[9/16] rounded-sm overflow-hidden relative bg-gradient-to-b ${VIDEO_GRADIENTS[i % VIDEO_GRADIENTS.length]}`}
+          onClick={() => onVideoTap(i)}
+          className={`aspect-[9/16] rounded-sm overflow-hidden relative bg-gradient-to-b ${VIDEO_GRADIENTS[i % VIDEO_GRADIENTS.length]} cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff0050]`}
+          aria-label={`Play ${video.title}`}
         >
           {video.thumbnailUrl ? (
             <img
@@ -812,14 +848,16 @@ function VideoGrid({
               loading="lazy"
             />
           ) : null}
-          {/* View count overlay */}
+          {/* View count — bottom left */}
           <div className="absolute bottom-1 left-1 flex items-center gap-0.5">
             <Play size={10} fill="white" stroke="none" />
             <span className="text-white text-[10px] font-medium">
               {formatCount(video.viewCount)}
             </span>
           </div>
-        </div>
+          {/* Duration badge — bottom right */}
+          {video.videoUrl && <VideoDurationBadge videoUrl={video.videoUrl} />}
+        </button>
       ))}
     </div>
   );

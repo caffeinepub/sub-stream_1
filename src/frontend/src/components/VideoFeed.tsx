@@ -7,11 +7,14 @@ import { getDisplayName, getUsername } from "../lib/userFormat";
 import { StoryCreatorPage } from "../pages/StoryCreatorPage";
 import { StoryViewerPage, type StoryWithUser } from "../pages/StoryViewerPage";
 import { EmptyFeedState } from "./EmptyFeedState";
+import { FollowingLiveRow } from "./FollowingLiveRow";
 import { StoryRing } from "./StoryRing";
 import { VideoCard } from "./VideoCard";
 
 interface VideoFeedProps {
   onOpenCreate?: () => void;
+  onNavigateToProfile?: (principal: string) => void;
+  onJoinLiveStream?: (principalStr: string, displayName: string) => void;
 }
 
 interface StoryUserEntry {
@@ -20,10 +23,16 @@ interface StoryUserEntry {
   user: User | null;
 }
 
-export function VideoFeed({ onOpenCreate }: VideoFeedProps) {
+export function VideoFeed({
+  onOpenCreate,
+  onNavigateToProfile,
+  onJoinLiveStream,
+}: VideoFeedProps) {
   const { actor, isAuthenticated, userProfile } = useAuth();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
+  // Mute state lives here so it persists across swipes
+  const [isMuted, setIsMuted] = useState(false);
   const touchStartY = useRef<number | null>(null);
   const touchStartTime = useRef<number>(0);
   const [storyCreatorOpen, setStoryCreatorOpen] = useState(false);
@@ -233,6 +242,9 @@ export function VideoFeed({ onOpenCreate }: VideoFeedProps) {
               key={currentVideo.id.toString()}
               video={currentVideo}
               isAuthenticated={isAuthenticated}
+              onNavigateToProfile={onNavigateToProfile}
+              isMuted={isMuted}
+              onMuteChange={setIsMuted}
             />
           )}
         </div>
@@ -297,6 +309,20 @@ export function VideoFeed({ onOpenCreate }: VideoFeedProps) {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Following live row — floats below stories row */}
+        {isAuthenticated && (
+          <div className="absolute left-0 right-0 z-10" style={{ top: 132 }}>
+            <FollowingLiveRow
+              onJoinStream={(principalStr, displayName) =>
+                onJoinLiveStream?.(principalStr, displayName)
+              }
+              onOpenProfile={(principalStr) =>
+                onNavigateToProfile?.(principalStr)
+              }
+            />
           </div>
         )}
 
