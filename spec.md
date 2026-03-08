@@ -1,52 +1,68 @@
-# Sub Stream — Live Co-Host & Battle System
+# Sub Stream
 
 ## Current State
 
-- `LiveStreamViewPage` has a basic battle mode (local state only) with a simple `battleChallengeOpen` sheet listing hardcoded "Creator A/B/C" opponents
-- The invite/guest system sends `LIVE_INVITE:${stream.id}` DMs but has no accept/decline UI
-- Split screen shows host + cohost panels but cohost has no real video — just a gradient background
-- Battle mode starts but has no proper 5-minute countdown, confetti win screen, or gift-to-score conversion
-- No viewer-side "someone invited you to join live" notification UI exists
-- No real co-host join flow exists (accepting the invite doesn't start a split screen)
+Full-stack social video platform on ICP (Motoko backend + React/Tailwind frontend). Deployed as Version 16+.
+
+**Working features:**
+- Auth (Internet Identity / email+password), persistent login, username setup, online status
+- Vertical video feed with swipe navigation, double-tap like, single-tap pause/play
+- Video upload (3-step: camera → editor → publish), real thumbnails, video grid on profile
+- Stories (add/view/expire 24h, story ring, story viewer)
+- Live stream setup (practice mode, camera preview, countdown) and viewer page
+- Co-host invite system (DM-based invite, split-screen layout)
+- Battle mode: basic split screen, timer, gift point scoring, confetti win screen
+- Gift system: coin wallet context, gift catalog (emoji-based), animation overlay, Stripe coin recharge
+- Inbox: real DM conversations, activity section, Live Now section
+- Search: users, videos, hashtags
+- Profile: video grid, pin/edit/delete posts, follow/unfollow, bio editing
+- Bottom/top nav, create menu
+
+**Known gaps in last attempt:**
+- Battle mode build failed — the full Match Battle System was incomplete
+- Gift animations use emoji only, no 3D/CSS keyframe animation sequences
+- Battle challenge list loads placeholder names instead of real live creators
+- MVP crown animation, rematch flow, supporter display not implemented
+- Gift goal progress bar for creators not implemented
 
 ## Requested Changes (Diff)
 
 ### Add
-
-- **CoHostInviteNotification component**: floating banner/modal that appears when a `LIVE_INVITE:` DM is received while the user is in the app. Shows "[username] invited you to join LIVE" with Accept / Decline buttons. On Accept: opens the host's live stream in co-host mode.
-- **Co-host join flow**: when guest accepts invite, their camera activates and split screen layout is shown
-- **Split screen layout** (`CoHostSplitScreen` sub-layout inside `LiveStreamViewPage`):
-  - Left: host video (real MediaStream or gradient fallback), creator name label, like count
-  - Right: guest video (local camera if guest, or gradient fallback), guest name, like count
-  - Both panels use `object-fit: cover`, fill equal halves of the screen
-  - Viewer profile circles row below each creator (up to 6 avatar bubbles)
-- **Battle interface**: when battle starts:
-  - Top battle bar: `[Host name] ❤️ {hostScore} | ⏱ {MM:SS} | ❤️ {guestScore} [Guest name]`
-  - Score fills from gifts sent to each side (gift.coins = points added to that creator's score)
-  - Default duration: 5 minutes (300 seconds)
-  - Viewers can tap "Support Host" or "Support Guest" side when sending gift
-- **Win screen** (at battle end): overlay with confetti animation, "🏆 Winner: [name]" banner, final scores, Close button
-- **Battle request popup** for the opponent: `"[hostName] wants to start a LIVE battle!"` with Accept / Decline
-- **Exit co-host**: either creator can tap X on their panel to leave; if guest leaves → single view; if host ends → stream ends for both
-- **Gift scoring**: gift sent during battle adds `gift.coins` to the selected side's score (left = host, right = guest)
-- **Confetti animation**: pure CSS/JS particle confetti, 60 colored squares rain down on win
+- **LiveMatchBattlePage** — dedicated full-screen battle view with proper split-screen layout, top battle score bar (red vs blue), animated fill bar, timer countdown (5 min default), double-tap support (1 point per tap per side), live chat overlay at bottom
+- **BattleMatchmaking** — when host taps "Match Battle", show list of real currently-live creators (pulled from active principals), send a `BATTLE_INVITE:` DM, invited creator receives `BattleInviteNotification` (similar to CoHostInviteNotification), accept starts battle
+- **BattleInviteNotification** — slide-in banner: "[name] wants to start a LIVE battle", Accept / Decline buttons, auto-dismiss 15s
+- **MVP Crown Animation** — when timer hits 0, animated crown SVG drops from top onto winning side, "MVP" label, confetti burst, 3s duration
+- **Rematch flow** — after battle end show "Rematch" and "Exit Battle" buttons; both players press Rematch → new 5-min battle starts immediately
+- **Supporter display** — 3 small profile circles shown under each side during battle (top gifters for that session)
+- **Enhanced gift animations** — CSS keyframe animations for: Rose (float up + sparkle), Lion (walk + shake), Phoenix (fire trail), Universe (galaxy burst), Plane (arc flight), Money Gun (bills scatter); all layered above video, GPU-accelerated, 3–6s duration, queued playback
+- **Gift Goal bar** — creator can set a gift goal (e.g. "Rose Goal 500"); progress bar visible during live to all viewers; filled by incoming gifts
+- **Creator earnings / diamond conversion** — display in profile wallet: coins spent, diamonds earned (100 coins = 50 diamonds), withdrawal section UI (non-functional placeholder for Stripe payout flow)
 
 ### Modify
-
-- `LiveStreamViewPage`: replace the hardcoded "Creator A/B/C" battle sheet with a real user picker + battle request flow; extend split screen to support real guest camera; add proper 5-min battle timer; wire gift scoring to battle points
-- `App.tsx`: poll for `LIVE_INVITE:` DMs while authenticated and not in a live stream; show the co-host invite notification when received
-- Battle timer: change from 60s to 300s (5 minutes)
+- **LiveStreamViewPage** — wire "Match Battle" button to BattleMatchmaking flow; replace basic confetti end with MVP crown animation; show battle state when in battle mode
+- **BattleMode** in LiveStreamViewPage — use real score from gift sends (each gift's coin cost = battle points); fix battle challenge list to load real users
+- **GiftAnimation** component — replace emoji-only animations with CSS keyframe sequences per gift type
+- **CoinWalletContext** — add `giftGoal` state, `setGiftGoal`, `giftProgress` tracker updated on each gift send during live
+- **InboxPage** — BattleInviteNotification also surfaced here when a battle invite DM arrives
 
 ### Remove
-
-- Hardcoded `["Creator A", "Creator B", "Creator C"]` in the battle challenge sheet
-- The separate `battleChallengeOpen` logic replaced by real user invite system
+- Placeholder/hardcoded creator names in battle challenge sheet
+- Static battle score (replace with real per-session accumulator)
 
 ## Implementation Plan
 
-1. Create `src/components/CoHostInviteNotification.tsx` — floating invite banner with Accept/Decline
-2. Create `src/hooks/useLiveInvitePoller.ts` — polls DMs for `LIVE_INVITE:` messages
-3. Create `src/components/BattleConfetti.tsx` — confetti win animation
-4. Extend `LiveStreamViewPage` with full split screen co-host, 5-min battle timer, gift-to-score routing, confetti win screen
-5. Wire invite accept flow in `App.tsx` to launch split screen view
-6. Validate and deploy
+1. Create `BattleInviteNotification.tsx` component (mirrors CoHostInviteNotification)
+2. Create `useBattleInvitePoller.ts` hook — polls conversations for `BATTLE_INVITE:` prefix DMs
+3. Update `LiveStreamViewPage.tsx`:
+   - Wire "Match Battle" button to open creator picker → send `BATTLE_INVITE:` DM
+   - Add battle invite detection for the current user (via hook)
+   - Replace basic split-screen score with real per-session gift accumulator
+   - Add `giftGoal` progress bar UI
+   - MVP crown animation on battle end (CSS keyframes)
+   - Rematch / Exit buttons on battle end screen
+   - Supporter icons (track top 3 gifters per side)
+4. Update `GiftAnimation.tsx` — add CSS keyframe animation variants per gift type
+5. Update `CoinWalletContext.tsx` — add giftGoal state + diamond balance derived from earnings
+6. Wire `BattleInviteNotification` into `App.tsx` (alongside CoHostInviteNotification)
+7. Add `LiveMatchBattlePage.tsx` for standalone battle view if needed
+8. Validate + deploy

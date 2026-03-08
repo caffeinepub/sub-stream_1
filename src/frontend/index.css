@@ -243,6 +243,46 @@
   }
 }
 
+/* ─── Enhanced gift & battle animations ────────────────── */
+
+@keyframes riseAndFade {
+  0% { transform: translateY(0) scale(1); opacity: 1; }
+  60% { opacity: 0.8; }
+  100% { transform: translateY(-300px) scale(0.5); opacity: 0; }
+}
+
+@keyframes planeArc {
+  0% { transform: translateX(120vw) translateY(0) rotate(-10deg); opacity: 0; }
+  15% { opacity: 1; }
+  50% { transform: translateX(50vw) translateY(-60px) rotate(5deg); opacity: 1; }
+  85% { opacity: 1; }
+  100% { transform: translateX(-20vw) translateY(20px) rotate(-5deg); opacity: 0; }
+}
+
+@keyframes crownDrop {
+  0% { transform: translateY(-200px) scale(0.5) rotate(-15deg); opacity: 0; }
+  60% { transform: translateY(10px) scale(1.1) rotate(3deg); opacity: 1; }
+  75% { transform: translateY(-5px) scale(0.98) rotate(-1deg); }
+  100% { transform: translateY(0) scale(1) rotate(0deg); opacity: 1; }
+}
+
+@keyframes galaxySwirl {
+  0% { transform: rotate(0deg) scale(0); opacity: 0; }
+  20% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { transform: rotate(360deg) scale(1.5); opacity: 0; }
+}
+
+@keyframes billsScatter {
+  0% { transform: translateX(-50%) translateY(0) rotate(0deg); opacity: 1; }
+  100% { transform: translateX(calc(-50% + var(--dx))) translateY(var(--dy)) rotate(var(--rot)); opacity: 0; }
+}
+
+@keyframes mvpPulse {
+  0%, 100% { text-shadow: 0 0 20px rgba(245,158,11,0.8); }
+  50% { text-shadow: 0 0 40px rgba(245,158,11,1), 0 0 80px rgba(245,158,11,0.5); }
+}
+
 /* ─── Meta theme color for mobile browsers ─────────────── */
 @media (prefers-color-scheme: dark) {
   :root {

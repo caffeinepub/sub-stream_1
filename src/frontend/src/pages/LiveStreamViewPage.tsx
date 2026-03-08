@@ -22,6 +22,7 @@ import { BattleConfetti } from "../components/BattleConfetti";
 import type { GiftItem } from "../components/GiftAnimation";
 import { GiftAnimation } from "../components/GiftAnimation";
 import { LiveChatMessage } from "../components/LiveChatMessage";
+import { MvpCrownAnimation } from "../components/MvpCrownAnimation";
 import { useAuth } from "../context/AuthContext";
 import { useCoinWallet } from "../context/CoinWalletContext";
 import type { LiveStream } from "../data/liveStreams";
@@ -753,12 +754,17 @@ export function LiveStreamViewPage({
   const [battleLeftScore, setBattleLeftScore] = useState(0);
   const [battleRightScore, setBattleRightScore] = useState(0);
   const [giftTarget, setGiftTarget] = useState<"host" | "guest">("host");
-  const [showBattleConfetti, setShowBattleConfetti] = useState(false);
-  const [battleWinner, setBattleWinner] = useState<string | null>(null);
+  const [battleEnded, setBattleEnded] = useState(false);
   const [battleEndScores, setBattleEndScores] = useState<{
     left: number;
     right: number;
   }>({ left: 0, right: 0 });
+  const [showMvpCrown, setShowMvpCrown] = useState(false);
+  // Supporter tracking for battle bar
+  const [topSupporters, setTopSupporters] = useState<{
+    left: string[];
+    right: string[];
+  }>({ left: [], right: [] });
 
   // ── Heart bursts ────────────────────────────────────────────────────────────
   const [heartBursts, setHeartBursts] = useState<HeartBurst[]>([]);
@@ -852,32 +858,28 @@ export function LiveStreamViewPage({
 
   // ── Battle timer ────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!localStream.battleMode) return;
+    if (!localStream.battleMode || battleEnded) return;
     const tick = setInterval(() => {
       setBattleTimer((prev) => {
         if (prev <= 1) {
           clearInterval(tick);
-          // Determine winner when timer hits 0
+          // Capture final scores and mark battle as ended
           setBattleLeftScore((ls) => {
             setBattleRightScore((rs) => {
-              const winner =
-                ls >= rs
-                  ? stream.hostName
-                  : (localStream.battleOpponentName ?? "Guest");
               setBattleEndScores({ left: ls, right: rs });
-              setBattleWinner(winner);
-              setShowBattleConfetti(true);
               return rs;
             });
             return ls;
           });
+          setBattleEnded(true);
+          setShowMvpCrown(true);
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
     return () => clearInterval(tick);
-  }, [localStream.battleMode, localStream.battleOpponentName, stream.hostName]);
+  }, [localStream.battleMode, battleEnded]);
 
   // ── Load invite users ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -998,12 +1000,20 @@ export function LiveStreamViewPage({
         recipientName: stream.hostName,
       });
 
-      // Battle score — route to selected side
+      // Battle score — route to selected side + track supporters
       if (localStream.battleMode) {
         if (giftTarget === "host") {
           setBattleLeftScore((prev) => prev + gift.coins);
+          setTopSupporters((prev) => ({
+            ...prev,
+            left: Array.from(new Set(["You", ...prev.left])).slice(0, 3),
+          }));
         } else {
           setBattleRightScore((prev) => prev + gift.coins);
+          setTopSupporters((prev) => ({
+            ...prev,
+            right: Array.from(new Set(["You", ...prev.right])).slice(0, 3),
+          }));
         }
       }
 
@@ -1221,6 +1231,13 @@ export function LiveStreamViewPage({
   const numCohosts = localStream.cohosts?.length ?? 0;
   const battleTotal = battleLeftScore + battleRightScore || 1;
   const hasRealStream = isHost && !!mediaStream;
+  // Derived battle winner from final scores
+  const battleWinner =
+    battleEndScores.left >= battleEndScores.right
+      ? stream.hostName
+      : (localStream.battleOpponentName ?? "Guest");
+  const battleWinnerSide: "left" | "right" =
+    battleEndScores.left >= battleEndScores.right ? "left" : "right";
 
   return (
     <div
@@ -1676,14 +1693,37 @@ export function LiveStreamViewPage({
             backdropFilter: "blur(8px)",
           }}
         >
-          <div className="flex items-center gap-1.5">
-            <span className="text-sm font-black" style={{ color: "#ff0050" }}>
-              ❤️ {battleLeftScore}
-            </span>
-            <span className="text-xs font-bold text-white/70 max-w-[80px] truncate">
-              {stream.hostName}
-            </span>
+          <div className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-1.5">
+              <span className="text-sm font-black" style={{ color: "#ff0050" }}>
+                ❤️ {battleLeftScore}
+              </span>
+              <span className="text-xs font-bold text-white/70 max-w-[80px] truncate">
+                {stream.hostName}
+              </span>
+            </div>
+            {/* Left supporters */}
+            {topSupporters.left.length > 0 && (
+              <div
+                data-ocid="battle.left_supporters"
+                className="flex items-center gap-0.5"
+              >
+                {topSupporters.left.map((name) => (
+                  <div
+                    key={`ls-${name}`}
+                    className="w-5 h-5 rounded-full flex items-center justify-center text-white font-black overflow-hidden flex-shrink-0"
+                    style={{
+                      background: "linear-gradient(135deg, #ff0050, #ff6b35)",
+                      fontSize: 7,
+                    }}
+                  >
+                    {name.slice(0, 2).toUpperCase()}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
+
           <div className="flex flex-col items-center">
             <span
               className={battleTimer <= 30 ? "battle-timer-urgent" : ""}
@@ -1699,13 +1739,36 @@ export function LiveStreamViewPage({
               {String(battleTimer % 60).padStart(2, "0")}
             </span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs font-bold text-white/70 max-w-[80px] truncate text-right">
-              {localStream.battleOpponentName ?? "Guest"}
-            </span>
-            <span className="text-sm font-black" style={{ color: "#3b82f6" }}>
-              {battleRightScore} ❤️
-            </span>
+
+          <div className="flex flex-col items-end gap-0.5">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-bold text-white/70 max-w-[80px] truncate text-right">
+                {localStream.battleOpponentName ?? "Guest"}
+              </span>
+              <span className="text-sm font-black" style={{ color: "#3b82f6" }}>
+                {battleRightScore} ❤️
+              </span>
+            </div>
+            {/* Right supporters */}
+            {topSupporters.right.length > 0 && (
+              <div
+                data-ocid="battle.right_supporters"
+                className="flex items-center justify-end gap-0.5"
+              >
+                {topSupporters.right.map((name) => (
+                  <div
+                    key={`rs-${name}`}
+                    className="w-5 h-5 rounded-full flex items-center justify-center text-white font-black overflow-hidden flex-shrink-0"
+                    style={{
+                      background: "linear-gradient(135deg, #3b82f6, #2563eb)",
+                      fontSize: 7,
+                    }}
+                  >
+                    {name.slice(0, 2).toUpperCase()}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -2673,7 +2736,7 @@ export function LiveStreamViewPage({
                         idx={idx}
                         streamId={stream.id}
                         onChallenge={() => {
-                          // Send a LIVE_BATTLE_REQUEST DM
+                          // Send a BATTLE_INVITE DM so the poller detects it
                           if (actor) {
                             void (async () => {
                               try {
@@ -2682,7 +2745,7 @@ export function LiveStreamViewPage({
                                 );
                                 await actor.sendMessage(
                                   Principal.fromText(user.principal),
-                                  `LIVE_BATTLE_REQUEST:${stream.id}`,
+                                  `BATTLE_INVITE:${stream.id}`,
                                 );
                               } catch {
                                 // silent
@@ -2697,6 +2760,8 @@ export function LiveStreamViewPage({
                           setBattleTimer(BATTLE_DURATION_SEC);
                           setBattleLeftScore(0);
                           setBattleRightScore(0);
+                          setBattleEnded(false);
+                          setTopSupporters({ left: [], right: [] });
                           setBattleChallengeOpen(false);
                         }}
                       />
@@ -2709,25 +2774,147 @@ export function LiveStreamViewPage({
         )}
       </AnimatePresence>
 
-      {/* BATTLE CONFETTI WIN SCREEN */}
+      {/* BATTLE ENDED OVERLAY — rematch / exit */}
       <AnimatePresence>
-        {showBattleConfetti && battleWinner && (
-          <BattleConfetti
+        {battleEnded && (
+          <motion.div
+            data-ocid="battle.end_overlay"
+            className="fixed inset-0 flex flex-col items-center justify-center"
+            style={{ zIndex: 50, background: "rgba(0,0,0,0.82)" }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+          >
+            {/* Confetti particles */}
+            <BattleConfetti
+              winnerName={battleWinner}
+              hostScore={battleEndScores.left}
+              guestScore={battleEndScores.right}
+              onClose={() => {
+                // Handled by the explicit buttons below — this just ensures
+                // BattleConfetti's auto-close doesn't run first
+              }}
+            />
+
+            {/* Winner card */}
+            <motion.div
+              initial={{ scale: 0.6, opacity: 0, y: 30 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.6, opacity: 0 }}
+              transition={{
+                type: "spring",
+                damping: 18,
+                stiffness: 200,
+                delay: 0.2,
+              }}
+              className="relative flex flex-col items-center gap-4 px-8 py-8 rounded-3xl mx-6 text-center"
+              style={{
+                background: "rgba(18,18,18,0.98)",
+                border: "1.5px solid rgba(245,158,11,0.5)",
+                boxShadow:
+                  "0 0 60px rgba(245,158,11,0.2), 0 24px 60px rgba(0,0,0,0.8)",
+                backdropFilter: "blur(20px)",
+                maxWidth: 320,
+                width: "100%",
+                zIndex: 51,
+              }}
+            >
+              {/* Crown + winner */}
+              <span className="text-6xl leading-none">👑</span>
+              <div>
+                <p
+                  className="text-xs font-black uppercase tracking-[0.25em] mb-1"
+                  style={{
+                    background: "linear-gradient(135deg, #f59e0b, #fbbf24)",
+                    WebkitBackgroundClip: "text",
+                    WebkitTextFillColor: "transparent",
+                    backgroundClip: "text",
+                  }}
+                >
+                  WINS THE BATTLE!
+                </p>
+                <p
+                  className="text-white font-black text-2xl"
+                  style={{
+                    fontFamily: "'Bricolage Grotesque', sans-serif",
+                    textShadow: "0 0 20px rgba(245,158,11,0.6)",
+                  }}
+                >
+                  {battleWinner}
+                </p>
+              </div>
+              {/* Scores */}
+              <p className="text-white/60 text-sm font-semibold">
+                Host:{" "}
+                <span style={{ color: "#ff0050" }}>
+                  {battleEndScores.left} pts
+                </span>{" "}
+                | Opp:{" "}
+                <span style={{ color: "#3b82f6" }}>
+                  {battleEndScores.right} pts
+                </span>
+              </p>
+
+              {/* Action buttons */}
+              <div className="flex gap-3 w-full mt-2">
+                <button
+                  type="button"
+                  data-ocid="battle.rematch_button"
+                  onClick={() => {
+                    setBattleEnded(false);
+                    setBattleTimer(BATTLE_DURATION_SEC);
+                    setBattleLeftScore(0);
+                    setBattleRightScore(0);
+                    setBattleEndScores({ left: 0, right: 0 });
+                    setTopSupporters({ left: [], right: [] });
+                  }}
+                  className="flex-1 py-3.5 rounded-2xl text-white font-bold text-sm transition-all active:scale-95"
+                  style={{
+                    background: "linear-gradient(135deg, #ff0050, #ff6b35)",
+                    boxShadow: "0 2px 14px rgba(255,0,80,0.35)",
+                  }}
+                >
+                  ⚔️ Rematch
+                </button>
+                <button
+                  type="button"
+                  data-ocid="battle.exit_button"
+                  onClick={() => {
+                    setBattleEnded(false);
+                    setLocalStream((prev) => ({
+                      ...prev,
+                      battleMode: false,
+                      battleOpponentName: undefined,
+                    }));
+                    setBattleTimer(BATTLE_DURATION_SEC);
+                    setBattleLeftScore(0);
+                    setBattleRightScore(0);
+                    setBattleEndScores({ left: 0, right: 0 });
+                    setTopSupporters({ left: [], right: [] });
+                  }}
+                  className="flex-1 py-3.5 rounded-2xl font-bold text-sm transition-all active:scale-95"
+                  style={{
+                    background: "rgba(255,255,255,0.08)",
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    color: "rgba(255,255,255,0.75)",
+                  }}
+                >
+                  Exit Battle
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* MVP CROWN ANIMATION */}
+      <AnimatePresence>
+        {showMvpCrown && battleEnded && (
+          <MvpCrownAnimation
             winnerName={battleWinner}
-            hostScore={battleEndScores.left}
-            guestScore={battleEndScores.right}
-            onClose={() => {
-              setShowBattleConfetti(false);
-              setBattleWinner(null);
-              setLocalStream((prev) => ({
-                ...prev,
-                battleMode: false,
-                battleOpponentName: undefined,
-              }));
-              setBattleTimer(BATTLE_DURATION_SEC);
-              setBattleLeftScore(0);
-              setBattleRightScore(0);
-            }}
+            winnerSide={battleWinnerSide}
+            onComplete={() => setShowMvpCrown(false)}
           />
         )}
       </AnimatePresence>

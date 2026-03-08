@@ -2,6 +2,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { Zap } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
+import { BattleInviteNotification } from "./components/BattleInviteNotification";
 import { BottomNav, type BottomNavScreen } from "./components/BottomNav";
 import { CoHostInviteNotification } from "./components/CoHostInviteNotification";
 import { CreateMenu } from "./components/CreateMenu";
@@ -11,6 +12,7 @@ import { VideoFeed } from "./components/VideoFeed";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { CoinWalletProvider } from "./context/CoinWalletContext";
 import type { LiveStream } from "./data/liveStreams";
+import { useBattleInvitePoller } from "./hooks/useBattleInvitePoller";
 import { useLiveInvitePoller } from "./hooks/useLiveInvitePoller";
 import { CoinRechargePage } from "./pages/CoinRechargePage";
 import { CreateFlowPage } from "./pages/CreateFlowPage";
@@ -141,6 +143,12 @@ function AppShell() {
     streamId: string;
   } | null>(null);
 
+  const [pendingBattleInvite, setPendingBattleInvite] = useState<{
+    fromName: string;
+    fromPrincipal: string;
+    streamId: string;
+  } | null>(null);
+
   const effectiveScreenForPoller: Screen =
     screen === "login" || screen === "register" ? "feed" : screen;
 
@@ -149,6 +157,18 @@ function AppShell() {
     enabled: isAuthenticated && effectiveScreenForPoller !== "live-view",
     onInviteReceived: (invite) => {
       setPendingInvite({
+        fromName: invite.fromName,
+        fromPrincipal: invite.fromPrincipal,
+        streamId: invite.streamId,
+      });
+    },
+  });
+
+  // Poll for battle invites when not already in a stream
+  useBattleInvitePoller({
+    enabled: isAuthenticated && effectiveScreenForPoller !== "live-view",
+    onInviteReceived: (invite) => {
+      setPendingBattleInvite({
         fromName: invite.fromName,
         fromPrincipal: invite.fromPrincipal,
         streamId: invite.streamId,
@@ -285,6 +305,33 @@ function AppShell() {
           setScreen("live-view");
         }}
         onDecline={() => setPendingInvite(null)}
+      />
+
+      {/* Battle invite notification — floats above co-host notification */}
+      <BattleInviteNotification
+        invite={pendingBattleInvite}
+        onAccept={(invite) => {
+          setPendingBattleInvite(null);
+          const battleStream: LiveStream = {
+            id: invite.streamId,
+            hostName: invite.fromName,
+            hostAvatar: "",
+            title: `⚔️ Battle vs ${invite.fromName}`,
+            category: "Live",
+            viewerCount: 0,
+            gradientFrom: "from-orange-900",
+            gradientTo: "to-red-900",
+            isHost: true,
+            hostPrincipal: invite.fromPrincipal,
+            battleMode: true,
+            battleOpponentName: invite.fromName,
+          };
+          setSelectedStream(battleStream);
+          setIsHostStream(true);
+          setLiveMediaStream(null);
+          setScreen("live-view");
+        }}
+        onDecline={() => setPendingBattleInvite(null)}
       />
 
       <AnimatePresence mode="wait">
