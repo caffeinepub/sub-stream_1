@@ -3,6 +3,9 @@ import {
   ArrowLeft,
   Camera,
   Check,
+  ChevronRight,
+  CreditCard,
+  Diamond,
   Heart,
   Loader2,
   MoreHorizontal,
@@ -11,6 +14,7 @@ import {
   Play,
   Settings,
   Trash2,
+  Wallet,
   X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -38,6 +42,9 @@ import { StoryViewerPage, type StoryWithUser } from "./StoryViewerPage";
 interface ProfilePageProps {
   onBack: () => void;
   onSettings: () => void;
+  onOpenEarnings?: () => void;
+  onOpenPaymentSettings?: () => void;
+  onOpenWallet?: () => void;
 }
 
 type ProfileTab = "videos" | "shorts" | "replays";
@@ -67,7 +74,13 @@ const VIDEO_GRADIENTS = [
   "from-red-900 to-rose-800",
 ];
 
-export function ProfilePage({ onBack, onSettings }: ProfilePageProps) {
+export function ProfilePage({
+  onBack,
+  onSettings,
+  onOpenEarnings,
+  onOpenPaymentSettings,
+  onOpenWallet,
+}: ProfilePageProps) {
   const { userProfile, actor, isAuthenticated, refreshProfile } = useAuth();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<ProfileTab>("videos");
@@ -762,6 +775,53 @@ export function ProfilePage({ onBack, onSettings }: ProfilePageProps) {
             icon={<Heart size={12} fill="#ff0050" stroke="none" />}
           />
         </div>
+
+        {/* Creator tools row — only on own profile */}
+        {isAuthenticated && (
+          <div className="flex gap-2 mt-4 w-full max-w-sm">
+            <button
+              type="button"
+              data-ocid="profile.earnings_button"
+              onClick={onOpenEarnings}
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-2xl text-sm font-semibold transition-all active:scale-[0.97]"
+              style={{
+                background: "rgba(168,85,247,0.12)",
+                border: "1px solid rgba(168,85,247,0.3)",
+                color: "#c084fc",
+              }}
+            >
+              <Diamond size={15} />
+              Creator Earnings
+            </button>
+            <button
+              type="button"
+              data-ocid="profile.wallet_button"
+              onClick={onOpenWallet}
+              className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-2xl text-sm font-semibold transition-all active:scale-[0.97]"
+              style={{
+                background: "rgba(245,158,11,0.1)",
+                border: "1px solid rgba(245,158,11,0.25)",
+                color: "rgba(245,158,11,0.8)",
+              }}
+              aria-label="Wallet"
+            >
+              <Wallet size={15} />
+            </button>
+            <button
+              type="button"
+              data-ocid="profile.payment_settings_button"
+              onClick={onOpenPaymentSettings}
+              className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-2xl text-sm font-semibold transition-all active:scale-[0.97]"
+              style={{
+                background: "rgba(255,255,255,0.05)",
+                border: "1px solid rgba(255,255,255,0.1)",
+                color: "rgba(255,255,255,0.6)",
+              }}
+            >
+              <CreditCard size={15} />
+            </button>
+          </div>
+        )}
       </motion.div>
 
       {/* Tabs */}

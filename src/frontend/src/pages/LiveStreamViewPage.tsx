@@ -19,6 +19,7 @@ import {
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BattleConfetti } from "../components/BattleConfetti";
+import { BattleMultiplierOverlay } from "../components/BattleMultiplierOverlay";
 import type { GiftItem } from "../components/GiftAnimation";
 import { GiftAnimation } from "../components/GiftAnimation";
 import { LiveChatMessage } from "../components/LiveChatMessage";
@@ -26,6 +27,8 @@ import { MvpCrownAnimation } from "../components/MvpCrownAnimation";
 import { useAuth } from "../context/AuthContext";
 import { useCoinWallet } from "../context/CoinWalletContext";
 import type { LiveStream } from "../data/liveStreams";
+import { useInternetIdentity } from "../hooks/useInternetIdentity";
+import { setLiveStatusStatic } from "../hooks/useLiveStatus";
 
 // ─── Gift catalog ────────────────────────────────────────────────────────────
 
@@ -706,6 +709,7 @@ export function LiveStreamViewPage({
 }: LiveStreamViewPageProps) {
   const { actor } = useAuth();
   const { coinBalance, deductCoins, addDiamonds, recordGift } = useCoinWallet();
+  const { identity } = useInternetIdentity();
 
   // ── Chat ────────────────────────────────────────────────────────────────────
   const [chatMessages, setChatMessages] = useState<ChatEntry[]>([]);
@@ -765,6 +769,14 @@ export function LiveStreamViewPage({
     left: string[];
     right: string[];
   }>({ left: [], right: [] });
+
+  // ── Multiplier state ─────────────────────────────────────────────────────────
+  const [activeMultiplier, setActiveMultiplier] = useState<1 | 2 | 3>(1);
+  const [multiplierTimeLeft, setMultiplierTimeLeft] = useState(0);
+  const [multiplierPhase, setMultiplierPhase] = useState<
+    "starting" | "active" | null
+  >(null);
+  const multiplierTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Heart bursts ────────────────────────────────────────────────────────────
   const [heartBursts, setHeartBursts] = useState<HeartBurst[]>([]);
@@ -1000,16 +1012,17 @@ export function LiveStreamViewPage({
         recipientName: stream.hostName,
       });
 
-      // Battle score — route to selected side + track supporters
+      // Battle score — route to selected side + track supporters (apply multiplier)
       if (localStream.battleMode) {
+        const pts = gift.coins * activeMultiplier;
         if (giftTarget === "host") {
-          setBattleLeftScore((prev) => prev + gift.coins);
+          setBattleLeftScore((prev) => prev + pts);
           setTopSupporters((prev) => ({
             ...prev,
             left: Array.from(new Set(["You", ...prev.left])).slice(0, 3),
           }));
         } else {
-          setBattleRightScore((prev) => prev + gift.coins);
+          setBattleRightScore((prev) => prev + pts);
           setTopSupporters((prev) => ({
             ...prev,
             right: Array.from(new Set(["You", ...prev.right])).slice(0, 3),
@@ -1060,6 +1073,7 @@ export function LiveStreamViewPage({
       localStream.battleMode,
       giftTarget,
       goal,
+      activeMultiplier,
     ],
   );
 
@@ -1101,14 +1115,26 @@ export function LiveStreamViewPage({
   );
 
   // ── Double tap heart ────────────────────────────────────────────────────────
-  const fireDoubleTap = useCallback((clientX: number, clientY: number) => {
-    const id = burstIdRef.current++;
-    setHeartBursts((prev) => [...prev, { id, x: clientX, y: clientY }]);
-    setLikeCount((prev) => prev + 1);
-    setTimeout(() => {
-      setHeartBursts((prev) => prev.filter((h) => h.id !== id));
-    }, 700);
-  }, []);
+  const fireDoubleTap = useCallback(
+    (clientX: number, clientY: number) => {
+      const id = burstIdRef.current++;
+      setHeartBursts((prev) => [...prev, { id, x: clientX, y: clientY }]);
+      setLikeCount((prev) => prev + 1);
+      // Apply multiplier to battle score on double tap
+      if (localStream.battleMode) {
+        const pts = 1 * activeMultiplier;
+        if (giftTarget === "host") {
+          setBattleLeftScore((prev) => prev + pts);
+        } else {
+          setBattleRightScore((prev) => prev + pts);
+        }
+      }
+      setTimeout(() => {
+        setHeartBursts((prev) => prev.filter((h) => h.id !== id));
+      }, 700);
+    },
+    [localStream.battleMode, activeMultiplier, giftTarget],
+  );
 
   const handleVideoTouchEnd = useCallback(
     (e: React.TouchEvent) => {
@@ -1198,13 +1224,18 @@ export function LiveStreamViewPage({
   // ── End stream ──────────────────────────────────────────────────────────────
   const handleEndStream = useCallback(() => {
     setHostControlsOpen(false);
+    // Clear live status in localStorage
+    const myPrincipal = identity?.getPrincipal().toString();
+    if (myPrincipal) {
+      setLiveStatusStatic(myPrincipal, false);
+    }
     onEnd?.({
       totalLikes: likeCount,
       totalGifts: giftCount,
       totalViewers: viewerCount,
       startedAt: startedAtRef.current,
     });
-  }, [onEnd, likeCount, giftCount, viewerCount]);
+  }, [onEnd, likeCount, giftCount, viewerCount, identity]);
 
   // ── Pause / resume stream ───────────────────────────────────────────────────
   const handlePauseResumeStream = useCallback(() => {
@@ -1219,6 +1250,42 @@ export function LiveStreamViewPage({
       setVideoPausedByHost(true);
       setVideoPaused(true);
     }
+  }, []);
+
+  // ── Multiplier activation ────────────────────────────────────────────────────
+  const activateMultiplier = useCallback((mult: 2 | 3) => {
+    if (multiplierTimerRef.current) clearTimeout(multiplierTimerRef.current);
+    setActiveMultiplier(mult);
+    setMultiplierPhase("starting");
+    setMultiplierTimeLeft(45);
+    setTimeout(() => setMultiplierPhase("active"), 2000);
+    multiplierTimerRef.current = setTimeout(() => {
+      setActiveMultiplier(1);
+      setMultiplierPhase(null);
+      setMultiplierTimeLeft(0);
+    }, 45000);
+  }, []);
+
+  // ── Multiplier countdown ─────────────────────────────────────────────────────
+  useEffect(() => {
+    if (multiplierTimeLeft <= 0) return;
+    const t = setInterval(() => {
+      setMultiplierTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(t);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(t);
+  }, [multiplierTimeLeft]);
+
+  // ── Cleanup multiplier timer on unmount ──────────────────────────────────────
+  useEffect(() => {
+    return () => {
+      if (multiplierTimerRef.current) clearTimeout(multiplierTimerRef.current);
+    };
   }, []);
 
   // ── Derived ─────────────────────────────────────────────────────────────────
@@ -1724,7 +1791,7 @@ export function LiveStreamViewPage({
             )}
           </div>
 
-          <div className="flex flex-col items-center">
+          <div className="flex flex-col items-center gap-0.5">
             <span
               className={battleTimer <= 30 ? "battle-timer-urgent" : ""}
               style={{
@@ -1738,6 +1805,20 @@ export function LiveStreamViewPage({
               {String(Math.floor(battleTimer / 60)).padStart(2, "0")}:
               {String(battleTimer % 60).padStart(2, "0")}
             </span>
+            {activeMultiplier > 1 && (
+              <span
+                className="text-xs font-black px-2 py-0.5 rounded-full"
+                style={{
+                  background:
+                    activeMultiplier === 2
+                      ? "rgba(245,158,11,0.3)"
+                      : "rgba(168,85,247,0.3)",
+                  color: activeMultiplier === 2 ? "#fbbf24" : "#c084fc",
+                }}
+              >
+                x{activeMultiplier} {multiplierTimeLeft}s
+              </span>
+            )}
           </div>
 
           <div className="flex flex-col items-end gap-0.5">
@@ -2352,6 +2433,50 @@ export function LiveStreamViewPage({
                     ocid: "livestream.set_goal_button",
                   },
                   {
+                    label:
+                      activeMultiplier === 2 && multiplierTimeLeft > 0
+                        ? `x2 Active (${multiplierTimeLeft}s)`
+                        : "Activate x2 Multiplier",
+                    icon: (
+                      <span
+                        className="text-base font-black"
+                        style={{ color: "#f59e0b" }}
+                      >
+                        x2
+                      </span>
+                    ),
+                    action: () => {
+                      activateMultiplier(2);
+                      setHostControlsOpen(false);
+                    },
+                    ocid: "livestream.x2_multiplier_button",
+                    active: activeMultiplier === 2,
+                    activeColor: "rgba(245,158,11,0.15)",
+                    activeBorder: "rgba(245,158,11,0.35)",
+                  },
+                  {
+                    label:
+                      activeMultiplier === 3 && multiplierTimeLeft > 0
+                        ? `x3 Active (${multiplierTimeLeft}s)`
+                        : "Activate x3 Multiplier",
+                    icon: (
+                      <span
+                        className="text-base font-black"
+                        style={{ color: "#a855f7" }}
+                      >
+                        x3
+                      </span>
+                    ),
+                    action: () => {
+                      activateMultiplier(3);
+                      setHostControlsOpen(false);
+                    },
+                    ocid: "livestream.x3_multiplier_button",
+                    active: activeMultiplier === 3,
+                    activeColor: "rgba(168,85,247,0.15)",
+                    activeBorder: "rgba(168,85,247,0.35)",
+                  },
+                  {
                     label: "Start Battle",
                     icon: (
                       <Swords
@@ -2773,6 +2898,14 @@ export function LiveStreamViewPage({
           </>
         )}
       </AnimatePresence>
+
+      {/* BATTLE MULTIPLIER OVERLAY */}
+      {activeMultiplier > 1 && (
+        <BattleMultiplierOverlay
+          multiplier={activeMultiplier as 2 | 3}
+          phase={multiplierPhase}
+        />
+      )}
 
       {/* BATTLE ENDED OVERLAY — rematch / exit */}
       <AnimatePresence>

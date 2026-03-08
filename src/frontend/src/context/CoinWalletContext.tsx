@@ -24,12 +24,26 @@ export interface PaymentRecord {
   packageId: string;
 }
 
+export interface WithdrawalRecord {
+  id: string;
+  amount: number; // USD
+  method: string; // "PayPal" | "Bank Transfer" | "Debit Card" | "Stripe"
+  status: "Processing" | "Completed" | "Failed";
+  timestamp: number;
+  transactionId: string;
+  providerTransactionId?: string;
+}
+
 export interface CoinWallet {
   coinBalance: number;
   diamonds: number;
   totalSpent: number;
   giftHistory: GiftRecord[];
   paymentHistory: PaymentRecord[];
+  totalGiftsReceived: number;
+  totalWithdrawn: number;
+  withdrawalHistory: WithdrawalRecord[];
+  pendingWithdrawals: WithdrawalRecord[];
 }
 
 interface CoinWalletContextValue {
@@ -41,6 +55,9 @@ interface CoinWalletContextValue {
   addDiamonds: (amount: number) => void;
   recordGift: (record: GiftRecord) => void;
   recordPayment: (record: PaymentRecord) => void;
+  requestWithdrawal: (amount: number, method: string) => WithdrawalRecord;
+  completeWithdrawal: (id: string) => void;
+  failWithdrawal: (id: string) => void;
 }
 
 // ─── Defaults ─────────────────────────────────────────────────────────────────
@@ -51,6 +68,10 @@ const DEFAULT_WALLET: CoinWallet = {
   totalSpent: 0,
   giftHistory: [],
   paymentHistory: [],
+  totalGiftsReceived: 0,
+  totalWithdrawn: 0,
+  withdrawalHistory: [],
+  pendingWithdrawals: [],
 };
 
 const CoinWalletContext = createContext<CoinWalletContextValue>({
@@ -62,6 +83,16 @@ const CoinWalletContext = createContext<CoinWalletContextValue>({
   addDiamonds: () => {},
   recordGift: () => {},
   recordPayment: () => {},
+  requestWithdrawal: (amount, method) => ({
+    id: "",
+    amount,
+    method,
+    status: "Processing",
+    timestamp: Date.now(),
+    transactionId: "",
+  }),
+  completeWithdrawal: () => {},
+  failWithdrawal: () => {},
 });
 
 // ─── Storage helpers ──────────────────────────────────────────────────────────
@@ -81,6 +112,10 @@ function loadWallet(principalText: string | null): CoinWallet {
       totalSpent: parsed.totalSpent ?? 0,
       giftHistory: parsed.giftHistory ?? [],
       paymentHistory: parsed.paymentHistory ?? [],
+      totalGiftsReceived: parsed.totalGiftsReceived ?? 0,
+      totalWithdrawn: parsed.totalWithdrawn ?? 0,
+      withdrawalHistory: parsed.withdrawalHistory ?? [],
+      pendingWithdrawals: parsed.pendingWithdrawals ?? [],
     };
   } catch {
     return { ...DEFAULT_WALLET };
@@ -139,6 +174,7 @@ export function CoinWalletProvider({ children }: PropsWithChildren) {
     setWallet((prev) => ({
       ...prev,
       diamonds: prev.diamonds + amount,
+      totalGiftsReceived: prev.totalGiftsReceived + amount,
     }));
   }, []);
 
@@ -156,6 +192,65 @@ export function CoinWalletProvider({ children }: PropsWithChildren) {
     }));
   }, []);
 
+  const requestWithdrawal = useCallback(
+    (amount: number, method: string): WithdrawalRecord => {
+      const record: WithdrawalRecord = {
+        id: `wd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        amount,
+        method,
+        status: "Processing",
+        timestamp: Date.now(),
+        transactionId: `TXN-${Date.now().toString(36).toUpperCase()}`,
+      };
+      // Convert USD amount to diamonds removed (inverse of 1000 diamonds = $5 USD)
+      const diamondsToDeduct = Math.ceil((amount / 5) * 1000);
+      setWallet((prev) => ({
+        ...prev,
+        diamonds: Math.max(0, prev.diamonds - diamondsToDeduct),
+        pendingWithdrawals: [...prev.pendingWithdrawals, record],
+        withdrawalHistory: [record, ...prev.withdrawalHistory].slice(0, 200),
+      }));
+      return record;
+    },
+    [],
+  );
+
+  const completeWithdrawal = useCallback((id: string) => {
+    setWallet((prev) => {
+      const record = prev.pendingWithdrawals.find((w) => w.id === id);
+      const updatedRecord = record
+        ? { ...record, status: "Completed" as const }
+        : null;
+      return {
+        ...prev,
+        totalWithdrawn: prev.totalWithdrawn + (record?.amount ?? 0),
+        pendingWithdrawals: prev.pendingWithdrawals.filter((w) => w.id !== id),
+        withdrawalHistory: prev.withdrawalHistory.map((w) =>
+          w.id === id ? { ...w, status: "Completed" as const } : w,
+        ),
+        ...(updatedRecord ? {} : {}),
+      };
+    });
+  }, []);
+
+  const failWithdrawal = useCallback((id: string) => {
+    setWallet((prev) => {
+      const record = prev.pendingWithdrawals.find((w) => w.id === id);
+      // Refund diamonds on failure
+      const diamondsToRefund = record
+        ? Math.ceil((record.amount / 5) * 1000)
+        : 0;
+      return {
+        ...prev,
+        diamonds: prev.diamonds + diamondsToRefund,
+        pendingWithdrawals: prev.pendingWithdrawals.filter((w) => w.id !== id),
+        withdrawalHistory: prev.withdrawalHistory.map((w) =>
+          w.id === id ? { ...w, status: "Failed" as const } : w,
+        ),
+      };
+    });
+  }, []);
+
   return (
     <CoinWalletContext.Provider
       value={{
@@ -167,6 +262,9 @@ export function CoinWalletProvider({ children }: PropsWithChildren) {
         addDiamonds,
         recordGift,
         recordPayment,
+        requestWithdrawal,
+        completeWithdrawal,
+        failWithdrawal,
       }}
     >
       {children}

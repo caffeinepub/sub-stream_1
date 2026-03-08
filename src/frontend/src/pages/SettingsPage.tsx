@@ -1,4 +1,12 @@
-import { ArrowLeft, ChevronRight, LogOut, RefreshCw, User } from "lucide-react";
+import {
+  ArrowLeft,
+  ChevronRight,
+  CreditCard,
+  LogOut,
+  RefreshCw,
+  Shield,
+  User,
+} from "lucide-react";
 import { motion } from "motion/react";
 import { useState } from "react";
 import { useAuth } from "../context/AuthContext";
@@ -7,9 +15,16 @@ import { getDisplayName, getUsername } from "../lib/userFormat";
 interface SettingsPageProps {
   onBack: () => void;
   onLogout: () => void;
+  onOpenCreatorPayments?: () => void;
+  onOpenBlockedUsers?: () => void;
 }
 
-export function SettingsPage({ onBack, onLogout }: SettingsPageProps) {
+export function SettingsPage({
+  onBack,
+  onLogout,
+  onOpenCreatorPayments,
+  onOpenBlockedUsers,
+}: SettingsPageProps) {
   const { userProfile, clearAllSessions } = useAuth();
   const [confirmReset, setConfirmReset] = useState(false);
 
@@ -136,6 +151,82 @@ export function SettingsPage({ onBack, onLogout }: SettingsPageProps) {
               </div>
             </div>
           )}
+        </div>
+
+        {/* Creator Payments section */}
+        <p className="text-white/30 text-xs font-semibold tracking-widest uppercase mb-3 px-1">
+          Creator Payments
+        </p>
+
+        <div
+          className="rounded-2xl overflow-hidden mb-6"
+          style={{
+            background: "rgba(255,255,255,0.04)",
+            border: "1px solid rgba(255,255,255,0.07)",
+          }}
+        >
+          <button
+            type="button"
+            data-ocid="settings.creator_payments_button"
+            onClick={onOpenCreatorPayments}
+            className="w-full flex items-center gap-3 px-4 py-4 text-left transition-all active:scale-[0.99]"
+          >
+            <div
+              className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
+              style={{ background: "rgba(255,0,80,0.15)" }}
+            >
+              <CreditCard size={18} style={{ color: "#ff0050" }} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p
+                className="text-white font-semibold text-sm"
+                style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}
+              >
+                Creator Payments
+              </p>
+              <p className="text-white/40 text-xs mt-0.5">
+                Payout methods, history &amp; withdrawals
+              </p>
+            </div>
+            <ChevronRight size={16} className="text-white/20 flex-shrink-0" />
+          </button>
+        </div>
+
+        {/* Privacy section */}
+        <p className="text-white/30 text-xs font-semibold tracking-widest uppercase mb-3 px-1">
+          Privacy
+        </p>
+
+        <div
+          className="rounded-2xl overflow-hidden mb-6"
+          style={{
+            background: "rgba(255,255,255,0.04)",
+            border: "1px solid rgba(255,255,255,0.07)",
+          }}
+        >
+          <button
+            type="button"
+            data-ocid="settings.blocked_users_button"
+            onClick={onOpenBlockedUsers}
+            className="w-full flex items-center gap-3 px-4 py-4 text-left transition-all active:scale-[0.99]"
+          >
+            <div
+              className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
+              style={{ background: "rgba(59,130,246,0.15)" }}
+            >
+              <Shield size={18} style={{ color: "#3b82f6" }} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p
+                className="text-white font-semibold text-sm"
+                style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}
+              >
+                Privacy &amp; Safety
+              </p>
+              <p className="text-white/40 text-xs mt-0.5">Blocked Users</p>
+            </div>
+            <ChevronRight size={16} className="text-white/20 flex-shrink-0" />
+          </button>
         </div>
 
         {/* App info section */}

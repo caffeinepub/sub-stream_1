@@ -1,6 +1,6 @@
 import { Principal } from "@icp-sdk/core/principal";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Loader2, Play } from "lucide-react";
+import { ArrowLeft, Loader2, MoreHorizontal, Play, Radio } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -10,11 +10,18 @@ import {
   VideoDurationBadge,
 } from "../components/ProfileVideoPlayer";
 import { useAuth } from "../context/AuthContext";
+import { useNotifications } from "../context/NotificationsContext";
+import { useFollowSystem } from "../hooks/useFollowSystem";
+import { useLiveStatus } from "../hooks/useLiveStatus";
 import { getDisplayName, getUsername } from "../lib/userFormat";
 
 interface UserProfilePageProps {
   principalStr: string;
   onBack: () => void;
+  onNavigateToProfile?: (principalStr: string) => void;
+  onOpenFollowers?: (userId: string, displayName: string) => void;
+  onOpenFollowing?: (userId: string, displayName: string) => void;
+  onJoinLiveStream?: (principalStr: string, displayName: string) => void;
 }
 
 function formatCount(n: bigint | number): string {
@@ -45,9 +52,27 @@ const VIDEO_GRADIENTS = [
 export function UserProfilePage({
   principalStr,
   onBack,
+  onNavigateToProfile,
+  onOpenFollowers,
+  onOpenFollowing,
+  onJoinLiveStream,
 }: UserProfilePageProps) {
   const { actor, isAuthenticated, userProfile } = useAuth();
+  const { addFollowNotification, addFriendNotification } = useNotifications();
   const queryClient = useQueryClient();
+  const {
+    blockUser,
+    isBlockedByMe,
+    recordFollowTimestamp,
+    removeFollowTimestamp,
+    myPrincipal,
+  } = useFollowSystem();
+  const { getLiveStatus } = useLiveStatus();
+
+  // More options menu state
+  const [menuOpen, setMenuOpen] = useState(false);
+  // Block confirmation dialog state
+  const [blockConfirmOpen, setBlockConfirmOpen] = useState(false);
 
   // Parse principal
   let principal: Principal | null = null;
@@ -56,6 +81,12 @@ export function UserProfilePage({
   } catch {
     // Invalid principal
   }
+
+  // Check if this user is live
+  const isLive = getLiveStatus(principalStr);
+
+  // Check if blocked
+  const blocked = isBlockedByMe(principalStr);
 
   // Fetch user profile
   const { data: profile, isLoading: profileLoading } = useQuery({
@@ -79,7 +110,7 @@ export function UserProfilePage({
     staleTime: 60_000,
   });
 
-  // Fetch follow status
+  // Fetch follow status (am I following them?)
   const { data: isFollowing = false } = useQuery({
     queryKey: ["isFollowing", principalStr],
     queryFn: async () => {
@@ -89,6 +120,25 @@ export function UserProfilePage({
     enabled: !!actor && !!principal && isAuthenticated,
     staleTime: 30_000,
   });
+
+  // Fetch whether they follow me (for "Friends" detection)
+  const { data: theyFollowMe = false } = useQuery({
+    queryKey: ["theyFollowMe", principalStr, myPrincipal],
+    queryFn: async () => {
+      if (!actor || !principal || !myPrincipal) return false;
+      // Get their following list and see if my principal is in it
+      const theirFollowing = await actor.getFollowing(principal!);
+      const myPrincipalObj = Principal.fromText(myPrincipal);
+      return theirFollowing.some(
+        (p) => p.toString() === myPrincipalObj.toString(),
+      );
+    },
+    enabled: !!actor && !!principal && !!myPrincipal && isAuthenticated,
+    staleTime: 30_000,
+  });
+
+  // Friends if mutual follow
+  const isFriend = isFollowing && theyFollowMe;
 
   // Fetch follower count (for live updates after follow/unfollow)
   const { data: followerCount = BigInt(0) } = useQuery({
@@ -140,7 +190,37 @@ export function UserProfilePage({
       void queryClient.invalidateQueries({
         queryKey: ["userProfile", principalStr],
       });
-      toast.success(isFollowing ? "Unfollowed" : "Now following!");
+      void queryClient.invalidateQueries({
+        queryKey: ["theyFollowMe", principalStr, myPrincipal],
+      });
+
+      if (!isFollowing) {
+        // Just followed
+        const displayNameForNotif = profile
+          ? getDisplayName(profile.name) || "USER"
+          : "USER";
+        recordFollowTimestamp(myPrincipal, principalStr);
+        // Fire follow notification (for their notifications)
+        const myName = userProfile
+          ? getDisplayName(userProfile.name) || "USER"
+          : "USER";
+        addFollowNotification(
+          myName,
+          myPrincipal,
+          userProfile?.avatarUrl ?? "",
+        );
+
+        // Check if mutual (they were already following me) → friends notification
+        if (theyFollowMe) {
+          addFriendNotification(displayNameForNotif, profile?.avatarUrl ?? "");
+        }
+
+        toast.success(`Now following ${displayNameForNotif}!`);
+      } else {
+        // Unfollowed
+        removeFollowTimestamp(myPrincipal, principalStr);
+        toast.success("Unfollowed");
+      }
     },
     onError: () => {
       // Rollback
@@ -151,6 +231,18 @@ export function UserProfilePage({
       toast.error("Failed to update follow status");
     },
   });
+
+  // Handle block
+  const handleBlockConfirm = () => {
+    const nameForBlock = profile
+      ? getDisplayName(profile.name) || "USER"
+      : "USER";
+    blockUser(principalStr, nameForBlock);
+    setBlockConfirmOpen(false);
+    setMenuOpen(false);
+    toast.success(`${nameForBlock} blocked`);
+    onBack();
+  };
 
   const isLoading = profileLoading || videosLoading;
 
@@ -172,6 +264,36 @@ export function UserProfilePage({
         >
           Go back
         </button>
+      </div>
+    );
+  }
+
+  // If blocked, show "User not found"
+  if (blocked) {
+    return (
+      <div
+        className="min-h-screen w-full flex flex-col items-center justify-center"
+        style={{ background: "#000" }}
+      >
+        <div className="flex flex-col items-center gap-3 text-center px-8">
+          <div
+            className="w-16 h-16 rounded-full flex items-center justify-center mb-2"
+            style={{ background: "rgba(255,255,255,0.06)" }}
+          >
+            <span className="text-2xl">🚫</span>
+          </div>
+          <p className="text-white font-semibold text-base">User not found</p>
+          <p className="text-white/35 text-sm">
+            This account is not available.
+          </p>
+          <button
+            type="button"
+            onClick={onBack}
+            className="mt-3 text-[#ff0050] text-sm font-medium"
+          >
+            Go back
+          </button>
+        </div>
       </div>
     );
   }
@@ -215,7 +337,21 @@ export function UserProfilePage({
         >
           {isLoading ? "Profile" : displayName}
         </h1>
-        <div className="w-9" />
+        {/* Three-dot more options — only for other users' profiles */}
+        {!isOwnProfile && !isLoading ? (
+          <button
+            type="button"
+            data-ocid="user-profile.more_options_button"
+            onClick={() => setMenuOpen(true)}
+            className="w-9 h-9 rounded-full flex items-center justify-center text-white/70 hover:text-white transition-colors"
+            style={{ background: "rgba(255,255,255,0.06)" }}
+            aria-label="More options"
+          >
+            <MoreHorizontal size={20} />
+          </button>
+        ) : (
+          <div className="w-9" />
+        )}
       </div>
 
       {/* Loading skeleton */}
@@ -261,15 +397,34 @@ export function UserProfilePage({
           transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
           className="px-5 pt-8 pb-6 flex flex-col items-center text-center"
         >
-          {/* Avatar */}
+          {/* Avatar with LIVE ring */}
           <div className="relative mb-4">
+            {/* LIVE pulsing red ring */}
+            {isLive && (
+              <motion.div
+                className="absolute rounded-full"
+                style={{
+                  inset: -4,
+                  border: "3px solid #ff0050",
+                  borderRadius: "50%",
+                  zIndex: 0,
+                }}
+                animate={{ opacity: [1, 0.4, 1] }}
+                transition={{
+                  duration: 1.4,
+                  repeat: Number.POSITIVE_INFINITY,
+                  ease: "easeInOut",
+                }}
+              />
+            )}
             <div
-              className="w-24 h-24 rounded-full flex items-center justify-center overflow-hidden border-2"
+              className="w-24 h-24 rounded-full flex items-center justify-center overflow-hidden border-2 relative"
               style={{
                 background: avatarUrl
                   ? "transparent"
                   : "linear-gradient(135deg, #ff0050 0%, #ff6b35 100%)",
-                borderColor: "rgba(255,255,255,0.15)",
+                borderColor: isLive ? "#ff0050" : "rgba(255,255,255,0.15)",
+                zIndex: 1,
               }}
             >
               {avatarUrl ? (
@@ -286,16 +441,48 @@ export function UserProfilePage({
             </div>
           </div>
 
-          {/* Display name */}
-          <h2
-            className="text-white font-bold text-2xl tracking-wide leading-none mb-1"
-            style={{
-              fontFamily: "'Bricolage Grotesque', sans-serif",
-              letterSpacing: "0.02em",
-            }}
-          >
-            {displayName}
-          </h2>
+          {/* Display name + LIVE badge + Friends badge */}
+          <div className="flex items-center gap-2 mb-1">
+            <h2
+              className="text-white font-bold text-2xl tracking-wide leading-none"
+              style={{
+                fontFamily: "'Bricolage Grotesque', sans-serif",
+                letterSpacing: "0.02em",
+              }}
+            >
+              {displayName}
+            </h2>
+            {isLive && (
+              <motion.span
+                className="px-1.5 py-0.5 rounded text-[10px] font-bold"
+                style={{
+                  background: "#ff0050",
+                  color: "white",
+                  letterSpacing: "0.06em",
+                }}
+                animate={{ opacity: [1, 0.6, 1] }}
+                transition={{
+                  duration: 1.2,
+                  repeat: Number.POSITIVE_INFINITY,
+                  ease: "easeInOut",
+                }}
+              >
+                LIVE
+              </motion.span>
+            )}
+            {isFriend && !isOwnProfile && (
+              <span
+                className="px-1.5 py-0.5 rounded-full text-[10px] font-bold"
+                style={{
+                  background: "rgba(34,197,94,0.15)",
+                  color: "#22c55e",
+                  border: "1px solid rgba(34,197,94,0.3)",
+                }}
+              >
+                Friends
+              </span>
+            )}
+          </div>
 
           {/* Username */}
           {username && (
@@ -314,21 +501,33 @@ export function UserProfilePage({
             </p>
           )}
 
-          {/* Stats row */}
+          {/* Stats row — tappable */}
           <div className="flex items-center gap-6 mt-2 mb-5">
-            <div className="flex flex-col items-center gap-0.5">
+            <button
+              type="button"
+              data-ocid="user-profile.followers_button"
+              onClick={() => onOpenFollowers?.(principalStr, displayName)}
+              className="flex flex-col items-center gap-0.5 transition-opacity active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff0050] rounded-lg px-1"
+              aria-label={`View followers of ${displayName}`}
+            >
               <span className="text-white font-bold text-lg leading-none">
                 {formatCount(followerCount)}
               </span>
               <span className="text-white/40 text-xs">Followers</span>
-            </div>
+            </button>
             <div className="w-px h-8 bg-white/10" />
-            <div className="flex flex-col items-center gap-0.5">
+            <button
+              type="button"
+              data-ocid="user-profile.following_button"
+              onClick={() => onOpenFollowing?.(principalStr, displayName)}
+              className="flex flex-col items-center gap-0.5 transition-opacity active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff0050] rounded-lg px-1"
+              aria-label={`View following of ${displayName}`}
+            >
               <span className="text-white font-bold text-lg leading-none">
                 {formatCount(followingCount)}
               </span>
               <span className="text-white/40 text-xs">Following</span>
-            </div>
+            </button>
             <div className="w-px h-8 bg-white/10" />
             <div className="flex flex-col items-center gap-0.5">
               <span className="text-white font-bold text-lg leading-none">
@@ -340,37 +539,63 @@ export function UserProfilePage({
 
           {/* Follow / Unfollow button */}
           {!isOwnProfile && isAuthenticated && (
-            <motion.button
-              type="button"
-              data-ocid="user-profile.follow_button"
-              onClick={() => followMutation.mutate()}
-              disabled={followMutation.isPending}
-              whileTap={{ scale: 0.97 }}
-              className="px-8 py-2.5 rounded-2xl font-bold text-sm transition-all disabled:opacity-70 flex items-center gap-2"
-              style={
-                isFollowing
-                  ? {
-                      background: "transparent",
-                      border: "2px solid rgba(255,255,255,0.3)",
-                      color: "rgba(255,255,255,0.8)",
-                    }
-                  : {
-                      background:
-                        "linear-gradient(135deg, #ff0050 0%, #ff3366 100%)",
-                      border: "none",
-                      color: "white",
-                      boxShadow: "0 8px 24px rgba(255,0,80,0.35)",
-                    }
-              }
-            >
-              {followMutation.isPending ? (
-                <Loader2 size={16} className="animate-spin" />
-              ) : isFollowing ? (
-                "Following"
-              ) : (
-                "Follow"
+            <div className="flex flex-col items-center gap-2 w-full max-w-xs">
+              <motion.button
+                type="button"
+                data-ocid="user-profile.follow_button"
+                onClick={() => followMutation.mutate()}
+                disabled={followMutation.isPending}
+                whileTap={{ scale: 0.97 }}
+                className="w-full px-8 py-2.5 rounded-2xl font-bold text-sm transition-all disabled:opacity-70 flex items-center justify-center gap-2"
+                style={
+                  isFollowing
+                    ? {
+                        background: "transparent",
+                        border: "2px solid rgba(255,255,255,0.3)",
+                        color: "rgba(255,255,255,0.8)",
+                      }
+                    : {
+                        background:
+                          "linear-gradient(135deg, #ff0050 0%, #ff3366 100%)",
+                        border: "none",
+                        color: "white",
+                        boxShadow: "0 8px 24px rgba(255,0,80,0.35)",
+                      }
+                }
+              >
+                {followMutation.isPending ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : isFriend ? (
+                  "Friends ✓"
+                ) : isFollowing ? (
+                  "Following"
+                ) : (
+                  "Follow"
+                )}
+              </motion.button>
+
+              {/* Join Live Stream button */}
+              {isLive && (
+                <motion.button
+                  type="button"
+                  data-ocid="user-profile.join_live_button"
+                  onClick={() => onJoinLiveStream?.(principalStr, displayName)}
+                  whileTap={{ scale: 0.97 }}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className="w-full px-8 py-2.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2"
+                  style={{
+                    background: "rgba(255,0,80,0.12)",
+                    border: "1.5px solid rgba(255,0,80,0.4)",
+                    color: "#ff0050",
+                  }}
+                >
+                  <Radio size={15} className="animate-pulse" />
+                  Join Live Stream
+                </motion.button>
               )}
-            </motion.button>
+            </div>
           )}
 
           {isOwnProfile && (
@@ -470,8 +695,179 @@ export function UserProfilePage({
             initialIndex={playerIndex}
             onClose={() => setPlayerOpen(false)}
             isAuthenticated={isAuthenticated}
-            onNavigateToProfile={undefined}
+            onNavigateToProfile={onNavigateToProfile}
           />
+        )}
+      </AnimatePresence>
+
+      {/* More Options bottom sheet */}
+      <AnimatePresence>
+        {menuOpen && (
+          <>
+            {/* biome-ignore lint/a11y/useKeyWithClickEvents: backdrop dismiss */}
+            <div
+              className="fixed inset-0 z-[180]"
+              style={{ background: "rgba(0,0,0,0.6)" }}
+              onClick={() => setMenuOpen(false)}
+            />
+            <motion.div
+              data-ocid="user-profile.sheet"
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+              className="fixed bottom-0 left-0 right-0 z-[190] rounded-t-3xl"
+              style={{
+                background: "rgba(12,12,12,0.99)",
+                backdropFilter: "blur(24px)",
+                WebkitBackdropFilter: "blur(24px)",
+                border: "1px solid rgba(255,255,255,0.08)",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Handle */}
+              <div className="flex justify-center pt-3 pb-1">
+                <div
+                  className="w-10 h-1 rounded-full"
+                  style={{ background: "rgba(255,255,255,0.2)" }}
+                />
+              </div>
+              <div className="px-4 pb-8 pt-2 space-y-1">
+                <button
+                  type="button"
+                  data-ocid="user-profile.block_button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setBlockConfirmOpen(true);
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-4 rounded-2xl transition-all active:scale-[0.98]"
+                  style={{
+                    background: "rgba(255,0,80,0.06)",
+                    border: "1px solid rgba(255,0,80,0.15)",
+                  }}
+                >
+                  <span className="text-xl">🚫</span>
+                  <span
+                    className="text-sm font-medium"
+                    style={{ color: "#ff0050" }}
+                  >
+                    Block User
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  data-ocid="user-profile.report_button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    toast.success("Reported");
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-4 rounded-2xl transition-all active:scale-[0.98]"
+                  style={{
+                    background: "rgba(255,255,255,0.04)",
+                    border: "1px solid rgba(255,255,255,0.06)",
+                  }}
+                >
+                  <span className="text-xl">⚠️</span>
+                  <span
+                    className="text-sm font-medium"
+                    style={{ color: "rgba(255,255,255,0.8)" }}
+                  >
+                    Report
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  data-ocid="user-profile.cancel_button"
+                  onClick={() => setMenuOpen(false)}
+                  className="w-full py-4 rounded-2xl text-sm font-semibold mt-1"
+                  style={{
+                    color: "rgba(255,255,255,0.4)",
+                    background: "rgba(255,255,255,0.04)",
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Block confirmation dialog */}
+      <AnimatePresence>
+        {blockConfirmOpen && (
+          <>
+            {/* biome-ignore lint/a11y/useKeyWithClickEvents: backdrop dismiss */}
+            <div
+              className="fixed inset-0 z-[200]"
+              style={{ background: "rgba(0,0,0,0.75)" }}
+              onClick={() => setBlockConfirmOpen(false)}
+            />
+            <motion.div
+              data-ocid="user-profile.block_dialog"
+              initial={{ opacity: 0, scale: 0.92 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.92 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 z-[210] flex items-center justify-center p-5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div
+                className="w-full max-w-xs rounded-3xl overflow-hidden"
+                style={{
+                  background: "rgba(16,16,16,0.99)",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  backdropFilter: "blur(24px)",
+                }}
+              >
+                <div className="px-6 pt-7 pb-2 text-center">
+                  <div
+                    className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4"
+                    style={{ background: "rgba(255,0,80,0.1)" }}
+                  >
+                    <span className="text-2xl">🚫</span>
+                  </div>
+                  <h3
+                    className="text-white font-bold text-lg mb-2"
+                    style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}
+                  >
+                    Block {displayName}?
+                  </h3>
+                  <p className="text-white/50 text-sm leading-relaxed">
+                    They won't be able to view your profile, videos or contact
+                    you.
+                  </p>
+                </div>
+                <div className="flex flex-col gap-2 px-5 pb-7 pt-4">
+                  <button
+                    type="button"
+                    data-ocid="user-profile.block_confirm_button"
+                    onClick={handleBlockConfirm}
+                    className="w-full py-3.5 rounded-2xl text-white text-sm font-bold"
+                    style={{
+                      background:
+                        "linear-gradient(135deg, #ff0050 0%, #ff3366 100%)",
+                      boxShadow: "0 4px 16px rgba(255,0,80,0.3)",
+                    }}
+                  >
+                    Confirm Block
+                  </button>
+                  <button
+                    type="button"
+                    data-ocid="user-profile.block_cancel_button"
+                    onClick={() => setBlockConfirmOpen(false)}
+                    className="w-full py-3.5 rounded-2xl text-sm font-semibold"
+                    style={{
+                      color: "rgba(255,255,255,0.6)",
+                      background: "rgba(255,255,255,0.06)",
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
     </div>

@@ -16,6 +16,8 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useInternetIdentity } from "../hooks/useInternetIdentity";
+import { setLiveStatusStatic } from "../hooks/useLiveStatus";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -57,6 +59,9 @@ type Phase = "practice" | "setup" | "countdown";
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function GoLiveSetupPage({ onBack, onStartLive }: GoLiveSetupPageProps) {
+  // ── Identity (for live status) ───────────────────────────────────────────────
+  const { identity } = useInternetIdentity();
+
   // ── Phase state ─────────────────────────────────────────────────────────────
   const [phase, setPhase] = useState<Phase>("practice");
 
@@ -203,6 +208,11 @@ export function GoLiveSetupPage({ onBack, onStartLive }: GoLiveSetupPageProps) {
       current -= 1;
       if (current <= 0) {
         clearInterval(tick);
+        // Mark the user as live
+        const myPrincipal = identity?.getPrincipal().toString();
+        if (myPrincipal) {
+          setLiveStatusStatic(myPrincipal, true);
+        }
         onStartLive({
           title: title.trim(),
           category,
@@ -224,6 +234,7 @@ export function GoLiveSetupPage({ onBack, onStartLive }: GoLiveSetupPageProps) {
     privacy,
     streamingMode,
     onStartLive,
+    identity,
   ]);
 
   // ─────────────────────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { Search } from "lucide-react";
+import { Bell, Search } from "lucide-react";
 import { useState } from "react";
 
 const TABS = ["LIVE", "Explore", "Following", "For You"] as const;
@@ -8,12 +8,16 @@ interface TopNavProps {
   onNavigate?: (tab: string) => void;
   onSearch?: () => void;
   searchActive?: boolean;
+  onNotifications?: () => void;
+  notificationCount?: number;
 }
 
 export function TopNav({
   onNavigate,
   onSearch,
   searchActive,
+  onNotifications,
+  notificationCount = 0,
 }: TopNavProps = {}) {
   const [activeTab, setActiveTab] = useState<Tab>("For You");
 
@@ -21,6 +25,8 @@ export function TopNav({
     setActiveTab(tab);
     onNavigate?.(tab);
   };
+
+  const displayCount = notificationCount > 99 ? "99+" : notificationCount;
 
   return (
     <header
@@ -32,8 +38,30 @@ export function TopNav({
         WebkitBackdropFilter: "blur(8px)",
       }}
     >
-      {/* Spacer to balance search icon */}
-      <div className="w-8" />
+      {/* Bell / notifications icon */}
+      <button
+        type="button"
+        data-ocid="topnav.notifications_button"
+        onClick={() => onNotifications?.()}
+        className="w-8 h-8 flex items-center justify-center transition-colors relative"
+        style={{ color: "white" }}
+        aria-label="Notifications"
+      >
+        <Bell size={20} strokeWidth={2} />
+        {notificationCount > 0 && (
+          <span
+            className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 rounded-full flex items-center justify-center text-white font-bold"
+            style={{
+              background: "#ff0050",
+              fontSize: 9,
+              paddingInline: 3,
+              lineHeight: 1,
+            }}
+          >
+            {displayCount}
+          </span>
+        )}
+      </button>
 
       {/* Center tabs */}
       <nav className="flex items-center gap-4 overflow-x-auto no-scrollbar">

@@ -1103,17 +1103,24 @@ export function InboxPage({
   const [activitySheet, setActivitySheet] = useState<ActivitySheet>(null);
   const [showUserPicker, setShowUserPicker] = useState(false);
 
-  // Real conversations from backend
-  const { data: conversationSummaries = [], isLoading: convosLoading } =
-    useQuery<ConversationSummary[]>({
-      queryKey: ["conversations"],
-      queryFn: async () => {
-        if (!actor) return [];
-        return actor.getConversations();
-      },
-      enabled: !!actor && isAuthenticated,
-      refetchInterval: 5000,
-    });
+  // Real conversations from backend — filter out system DM signals
+  const { data: rawConversations = [], isLoading: convosLoading } = useQuery<
+    ConversationSummary[]
+  >({
+    queryKey: ["conversations"],
+    queryFn: async () => {
+      if (!actor) return [];
+      return actor.getConversations();
+    },
+    enabled: !!actor && isAuthenticated,
+    refetchInterval: 5000,
+  });
+
+  const conversationSummaries = rawConversations.filter(
+    (conv) =>
+      !conv.lastMessage.startsWith("LIVE_INVITE:") &&
+      !conv.lastMessage.startsWith("BATTLE_INVITE:"),
+  );
 
   const activityItems: {
     id: ActivitySheet;

@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useCoinWallet } from "../context/CoinWalletContext";
+import { useWallet } from "../context/WalletContext";
 
 // ─── Coin packages ─────────────────────────────────────────────────────────────
 
@@ -316,6 +317,7 @@ interface CoinRechargePageProps {
 
 export function CoinRechargePage({ onBack }: CoinRechargePageProps) {
   const { coinBalance } = useCoinWallet();
+  const { addTransaction } = useWallet();
   const [selectedPackage, setSelectedPackage] = useState<
     (typeof COIN_PACKAGES)[number] | null
   >(null);
@@ -633,8 +635,17 @@ export function CoinRechargePage({ onBack }: CoinRechargePageProps) {
               setPaymentOpen(false);
               setSelectedPackage(null);
               setCustomAmount("");
+              // Record in wallet transaction log
+              addTransaction({
+                type: "coin_purchase",
+                label: `${formatCoins(pendingCoins)} coins purchased`,
+                amount: `+${formatCoins(pendingCoins)} coins`,
+                amountColor: "green",
+                transactionId: `TXN-${Date.now().toString(36).toUpperCase()}`,
+                status: "Completed",
+              });
               toast.success(
-                `🪙 ${formatCoins(pendingCoins)} coins added to your wallet!`,
+                `Recharge successful. ${formatCoins(pendingCoins)} coins added to your wallet.`,
               );
               onBack();
             }}

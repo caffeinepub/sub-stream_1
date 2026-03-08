@@ -11,16 +11,28 @@ import { TopNav } from "./components/TopNav";
 import { VideoFeed } from "./components/VideoFeed";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { CoinWalletProvider } from "./context/CoinWalletContext";
+import {
+  NotificationsProvider,
+  useNotifications,
+} from "./context/NotificationsContext";
+import { WalletProvider } from "./context/WalletContext";
 import type { LiveStream } from "./data/liveStreams";
 import { useBattleInvitePoller } from "./hooks/useBattleInvitePoller";
+import { useLiveFollowedPoller } from "./hooks/useLiveFollowedPoller";
 import { useLiveInvitePoller } from "./hooks/useLiveInvitePoller";
+import { BlockedUsersPage } from "./pages/BlockedUsersPage";
 import { CoinRechargePage } from "./pages/CoinRechargePage";
 import { CreateFlowPage } from "./pages/CreateFlowPage";
+import { CreatorEarningsPage } from "./pages/CreatorEarningsPage";
+import { FollowersListPage } from "./pages/FollowersListPage";
+import { FollowingListPage } from "./pages/FollowingListPage";
 import { GoLiveSetupPage } from "./pages/GoLiveSetupPage";
 import { InboxPage } from "./pages/InboxPage";
 import { LiveDiscoveryPage } from "./pages/LiveDiscoveryPage";
 import { LiveStreamViewPage } from "./pages/LiveStreamViewPage";
 import { LoginPage } from "./pages/LoginPage";
+import { NotificationsPage } from "./pages/NotificationsPage";
+import { PaymentSettingsPage } from "./pages/PaymentSettingsPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { SearchPage } from "./pages/SearchPage";
@@ -28,6 +40,7 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { UserProfilePage } from "./pages/UserProfilePage";
 import { UsernameSetupPage } from "./pages/UsernameSetupPage";
 import { VideoUploadPage } from "./pages/VideoUploadPage";
+import { WalletPage } from "./pages/WalletPage";
 
 type Screen =
   | "login"
@@ -46,7 +59,14 @@ type Screen =
   | "create-flow"
   | "user-profile"
   | "search"
-  | "coin-recharge";
+  | "coin-recharge"
+  | "earnings"
+  | "payment-settings"
+  | "wallet"
+  | "notifications"
+  | "followers-list"
+  | "following-list"
+  | "blocked-users";
 
 // ─── Loading Screen ────────────────────────────────────────────────────────────
 function LoadingScreen() {
@@ -125,6 +145,7 @@ function AppShell() {
     userProfile,
     actor,
   } = useAuth();
+  const { unreadCount } = useNotifications();
   const [screen, setScreen] = useState<Screen>("feed");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedStream, setSelectedStream] = useState<LiveStream | null>(null);
@@ -148,9 +169,25 @@ function AppShell() {
     fromPrincipal: string;
     streamId: string;
   } | null>(null);
+  // Track where payment-settings was opened from so back button is correct
+  const [paymentSettingsOrigin, setPaymentSettingsOrigin] =
+    useState<Screen>("settings");
+
+  // State for followers/following list pages
+  const [viewingListUserId, setViewingListUserId] = useState<string | null>(
+    null,
+  );
+  const [viewingListDisplayName, setViewingListDisplayName] =
+    useState<string>("");
+  // Remember which profile page we came from for followers/following back navigation
+  const [listOriginScreen, setListOriginScreen] =
+    useState<Screen>("user-profile");
 
   const effectiveScreenForPoller: Screen =
     screen === "login" || screen === "register" ? "feed" : screen;
+
+  // Poll followed creators' live status and send notifications
+  useLiveFollowedPoller();
 
   // Poll for live co-host invites when not already in a stream
   useLiveInvitePoller({
@@ -384,6 +421,69 @@ function AppShell() {
             <UserProfilePage
               principalStr={viewingProfilePrincipal}
               onBack={() => setScreen("feed")}
+              onNavigateToProfile={(pStr) => {
+                setViewingProfilePrincipal(pStr);
+                setScreen("user-profile");
+              }}
+              onOpenFollowers={(userId, displayName) => {
+                setViewingListUserId(userId);
+                setViewingListDisplayName(displayName);
+                setListOriginScreen("user-profile");
+                setScreen("followers-list");
+              }}
+              onOpenFollowing={(userId, displayName) => {
+                setViewingListUserId(userId);
+                setViewingListDisplayName(displayName);
+                setListOriginScreen("user-profile");
+                setScreen("following-list");
+              }}
+              onJoinLiveStream={handleJoinLiveFromProfile}
+            />
+          </motion.div>
+        )}
+
+        {/* Followers list page */}
+        {effectiveScreen === "followers-list" && viewingListUserId && (
+          <motion.div
+            key="followers-list"
+            initial={{ opacity: 0, x: 60 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 60 }}
+            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed inset-0 z-50 overflow-y-auto"
+            style={{ background: "#000" }}
+          >
+            <FollowersListPage
+              userId={viewingListUserId}
+              displayName={viewingListDisplayName}
+              onBack={() => setScreen(listOriginScreen)}
+              onNavigateToProfile={(pStr) => {
+                setViewingProfilePrincipal(pStr);
+                setScreen("user-profile");
+              }}
+            />
+          </motion.div>
+        )}
+
+        {/* Following list page */}
+        {effectiveScreen === "following-list" && viewingListUserId && (
+          <motion.div
+            key="following-list"
+            initial={{ opacity: 0, x: 60 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 60 }}
+            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed inset-0 z-50 overflow-y-auto"
+            style={{ background: "#000" }}
+          >
+            <FollowingListPage
+              userId={viewingListUserId}
+              displayName={viewingListDisplayName}
+              onBack={() => setScreen(listOriginScreen)}
+              onNavigateToProfile={(pStr) => {
+                setViewingProfilePrincipal(pStr);
+                setScreen("user-profile");
+              }}
             />
           </motion.div>
         )}
@@ -402,6 +502,12 @@ function AppShell() {
             <ProfilePage
               onBack={() => setScreen("feed")}
               onSettings={() => setScreen("settings")}
+              onOpenEarnings={() => setScreen("earnings")}
+              onOpenPaymentSettings={() => {
+                setPaymentSettingsOrigin("profile");
+                setScreen("payment-settings");
+              }}
+              onOpenWallet={() => setScreen("wallet")}
             />
             <BottomNav
               activeScreen="profile"
@@ -425,7 +531,27 @@ function AppShell() {
             <SettingsPage
               onBack={() => setScreen("profile")}
               onLogout={handleLogout}
+              onOpenCreatorPayments={() => {
+                setPaymentSettingsOrigin("settings");
+                setScreen("payment-settings");
+              }}
+              onOpenBlockedUsers={() => setScreen("blocked-users")}
             />
+          </motion.div>
+        )}
+
+        {/* Blocked Users page */}
+        {effectiveScreen === "blocked-users" && (
+          <motion.div
+            key="blocked-users"
+            initial={{ opacity: 0, x: 60 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 60 }}
+            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed inset-0 z-50 overflow-y-auto"
+            style={{ background: "#000" }}
+          >
+            <BlockedUsersPage onBack={() => setScreen("settings")} />
           </motion.div>
         )}
 
@@ -513,6 +639,8 @@ function AppShell() {
               }}
               onSearch={() => setScreen("search")}
               searchActive={screen === "search"}
+              onNotifications={() => setScreen("notifications")}
+              notificationCount={unreadCount}
             />
             <BottomNav
               activeScreen={bottomActive}
@@ -670,6 +798,80 @@ function AppShell() {
           </motion.div>
         )}
 
+        {/* Creator Earnings page */}
+        {effectiveScreen === "earnings" && (
+          <motion.div
+            key="earnings"
+            initial={{ opacity: 0, x: 60 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 60 }}
+            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed inset-0 z-40 overflow-y-auto"
+            style={{ background: "#000" }}
+          >
+            <CreatorEarningsPage
+              onBack={() => setScreen("profile")}
+              onOpenPaymentSettings={() => {
+                setPaymentSettingsOrigin("earnings");
+                setScreen("payment-settings");
+              }}
+            />
+          </motion.div>
+        )}
+
+        {/* Payment Settings page */}
+        {effectiveScreen === "payment-settings" && (
+          <motion.div
+            key="payment-settings"
+            initial={{ opacity: 0, x: 60 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 60 }}
+            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed inset-0 z-40 overflow-y-auto"
+            style={{ background: "#000" }}
+          >
+            <PaymentSettingsPage
+              onBack={() => setScreen(paymentSettingsOrigin)}
+            />
+          </motion.div>
+        )}
+
+        {/* Wallet page */}
+        {effectiveScreen === "wallet" && (
+          <motion.div
+            key="wallet"
+            initial={{ opacity: 0, x: 60 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 60 }}
+            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed inset-0 z-40 overflow-y-auto"
+            style={{ background: "#000" }}
+          >
+            <WalletPage onBack={() => setScreen("profile")} />
+          </motion.div>
+        )}
+
+        {/* Notifications page */}
+        {effectiveScreen === "notifications" && (
+          <motion.div
+            key="notifications"
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed inset-0 z-40 overflow-y-auto"
+            style={{ background: "#000" }}
+          >
+            <NotificationsPage
+              onBack={() => setScreen("feed")}
+              onNavigateToProfile={(pStr) => {
+                setViewingProfilePrincipal(pStr);
+                setScreen("user-profile");
+              }}
+            />
+          </motion.div>
+        )}
+
         {/* Go Live setup page */}
         {effectiveScreen === "go-live-setup" && (
           <motion.div
@@ -713,20 +915,24 @@ export default function App() {
   return (
     <AuthProvider>
       <CoinWalletProvider>
-        <div className="relative w-full h-screen overflow-hidden bg-black">
-          <AppShell />
-          <Toaster
-            position="top-center"
-            toastOptions={{
-              style: {
-                background: "rgba(20,20,20,0.95)",
-                border: "1px solid rgba(255,255,255,0.1)",
-                color: "white",
-                backdropFilter: "blur(12px)",
-              },
-            }}
-          />
-        </div>
+        <NotificationsProvider>
+          <WalletProvider>
+            <div className="relative w-full h-screen overflow-hidden bg-black">
+              <AppShell />
+              <Toaster
+                position="top-center"
+                toastOptions={{
+                  style: {
+                    background: "rgba(20,20,20,0.95)",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    color: "white",
+                    backdropFilter: "blur(12px)",
+                  },
+                }}
+              />
+            </div>
+          </WalletProvider>
+        </NotificationsProvider>
       </CoinWalletProvider>
     </AuthProvider>
   );

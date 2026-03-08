@@ -1,68 +1,106 @@
-# Sub Stream
+# Sub Stream — Follow, Friend, Block & Live Status System
 
 ## Current State
 
-Full-stack social video platform on ICP (Motoko backend + React/Tailwind frontend). Deployed as Version 16+.
+The app is a full-stack TikTok-style social video platform. The backend (Motoko) already has:
+- `follow`, `unfollow`, `isFollowing`, `getFollowers`, `getFollowing`, `getFollowerCount` endpoints
+- Online/live status fields on User (`isOnline`, `lastSeen`)
+- Notification system (frontend-only, `NotificationsPage.tsx`)
+- Direct messaging system
+- User profiles with follower/following counts (stored but not live-computed)
 
-**Working features:**
-- Auth (Internet Identity / email+password), persistent login, username setup, online status
-- Vertical video feed with swipe navigation, double-tap like, single-tap pause/play
-- Video upload (3-step: camera → editor → publish), real thumbnails, video grid on profile
-- Stories (add/view/expire 24h, story ring, story viewer)
-- Live stream setup (practice mode, camera preview, countdown) and viewer page
-- Co-host invite system (DM-based invite, split-screen layout)
-- Battle mode: basic split screen, timer, gift point scoring, confetti win screen
-- Gift system: coin wallet context, gift catalog (emoji-based), animation overlay, Stripe coin recharge
-- Inbox: real DM conversations, activity section, Live Now section
-- Search: users, videos, hashtags
-- Profile: video grid, pin/edit/delete posts, follow/unfollow, bio editing
-- Bottom/top nav, create menu
-
-**Known gaps in last attempt:**
-- Battle mode build failed — the full Match Battle System was incomplete
-- Gift animations use emoji only, no 3D/CSS keyframe animation sequences
-- Battle challenge list loads placeholder names instead of real live creators
-- MVP crown animation, rematch flow, supporter display not implemented
-- Gift goal progress bar for creators not implemented
+What is **missing**:
+- Block system (no `blockUser`, `unblockUser`, `getBlockedUsers`, `isBlocked` endpoints)
+- Follower/following counts are stored on User but not updated when follow/unfollow happens
+- No `Notification` type or backend notification storage — follow notifications, friend notifications, live notifications are missing from the backend
+- No `isFriend` (mutual follow) query
+- No `isLive` flag on User; the "live status" indicator for profiles is missing
+- No `FollowersListPage` / `FollowingListPage` UI with profile picture, username, follow button, follow date
+- `getFollowers` returns `[Principal]` but does not include follow date
+- Profile pages don't show clickable Followers / Following counts that open lists
+- Block list UI missing from Settings → Privacy
 
 ## Requested Changes (Diff)
 
 ### Add
-- **LiveMatchBattlePage** — dedicated full-screen battle view with proper split-screen layout, top battle score bar (red vs blue), animated fill bar, timer countdown (5 min default), double-tap support (1 point per tap per side), live chat overlay at bottom
-- **BattleMatchmaking** — when host taps "Match Battle", show list of real currently-live creators (pulled from active principals), send a `BATTLE_INVITE:` DM, invited creator receives `BattleInviteNotification` (similar to CoHostInviteNotification), accept starts battle
-- **BattleInviteNotification** — slide-in banner: "[name] wants to start a LIVE battle", Accept / Decline buttons, auto-dismiss 15s
-- **MVP Crown Animation** — when timer hits 0, animated crown SVG drops from top onto winning side, "MVP" label, confetti burst, 3s duration
-- **Rematch flow** — after battle end show "Rematch" and "Exit Battle" buttons; both players press Rematch → new 5-min battle starts immediately
-- **Supporter display** — 3 small profile circles shown under each side during battle (top gifters for that session)
-- **Enhanced gift animations** — CSS keyframe animations for: Rose (float up + sparkle), Lion (walk + shake), Phoenix (fire trail), Universe (galaxy burst), Plane (arc flight), Money Gun (bills scatter); all layered above video, GPU-accelerated, 3–6s duration, queued playback
-- **Gift Goal bar** — creator can set a gift goal (e.g. "Rose Goal 500"); progress bar visible during live to all viewers; filled by incoming gifts
-- **Creator earnings / diamond conversion** — display in profile wallet: coins spent, diamonds earned (100 coins = 50 diamonds), withdrawal section UI (non-functional placeholder for Stripe payout flow)
+
+**Backend:**
+- `BlockRecord` type: `{ blocker: Principal; blocked: Principal; createdAt: Int }`
+- `FollowRecord` type: `{ follower: Principal; following: Principal; createdAt: Int }` — store follow timestamps
+- `Notification` type: `{ id: Nat; recipientId: Principal; senderId: Principal; kind: Text; message: Text; isRead: Bool; createdAt: Int }`
+- `blockUser(userId)` — create block record, remove any existing follow relationship both ways
+- `unblockUser(userId)` — remove block record
+- `getBlockedUsers()` — returns `[BlockRecord]` for the caller
+- `isBlocked(userId)` — returns Bool (either direction)
+- `getFollowersWithDate(userId)` — returns `[{ follower: Principal; createdAt: Int }]`
+- `getFollowingWithDate(userId)` — returns `[{ following: Principal; createdAt: Int }]`
+- `isFriend(userId)` — returns Bool (mutual follow check)
+- `getFriends()` — returns `[Principal]` (mutual follows of caller)
+- `setLiveStatus(isLive: Bool)` — update user's live status
+- `getLiveStatus(userId)` — returns `?{ isLive: Bool }`
+- `getLiveFollowing()` — returns `[Principal]` of followed users who are currently live
+- `getNotifications()` — returns `[Notification]` for caller
+- `markNotificationRead(id: Nat)` — mark single notification read
+- `markAllNotificationsRead()` — mark all read
+- `getUnreadNotificationCount()` — returns Nat
+
+**Backend updates:**
+- Update `follow()` to: check blocked status, store follow record with timestamp, update follower/following counts on both users, create notification for the followed user, and if mutual follow exists create a "friend" notification
+- Update `unfollow()` to: remove follow record, decrement follower/following counts on both users
+- Add `isLive: Bool` field to `User` type
+- Update `User` to track `isLive`
+
+**Frontend pages (new):**
+- `FollowersListPage.tsx` — full-screen sheet/page showing followers with avatar, display name, @username, follow date, follow/unfollow button
+- `FollowingListPage.tsx` — same for following list
+- `BlockedUsersPage.tsx` — Settings → Privacy → Blocked Users; list with unblock button
+- `FriendsPage.tsx` — mutual follows list, accessible from Profile → Friends tab
+
+**Frontend components (new):**
+- `LiveRingAvatar` — avatar component that shows red animated ring when `isLive=true`, green dot when `isOnline=true`
+- `FollowButton` — reusable follow/unfollow button with friend state awareness
+- `BlockUserModal` — confirmation modal for blocking a user (accessed via Profile → More Options)
+
+**Frontend updates:**
+- `UserProfilePage.tsx` — Followers / Following counts become tappable links. Add "More Options" menu with Block User. Show LIVE badge + tap-to-join when creator is live. Use `LiveRingAvatar`.
+- `ProfilePage.tsx` — update follower/following count display to be tappable. Show LIVE ring on own avatar when streaming.
+- `NotificationsPage.tsx` — wire to real backend notifications (new follower, friend connection, user went live)
+- `SettingsPage.tsx` — add "Privacy" section with "Blocked Users" entry
+- `InboxPage.tsx` / `LiveDiscoveryPage.tsx` — use `LiveRingAvatar` for live status indicators
+- Home feed following row — respect block relationships (don't show blocked users)
 
 ### Modify
-- **LiveStreamViewPage** — wire "Match Battle" button to BattleMatchmaking flow; replace basic confetti end with MVP crown animation; show battle state when in battle mode
-- **BattleMode** in LiveStreamViewPage — use real score from gift sends (each gift's coin cost = battle points); fix battle challenge list to load real users
-- **GiftAnimation** component — replace emoji-only animations with CSS keyframe sequences per gift type
-- **CoinWalletContext** — add `giftGoal` state, `setGiftGoal`, `giftProgress` tracker updated on each gift send during live
-- **InboxPage** — BattleInviteNotification also surfaced here when a battle invite DM arrives
+
+- `follow()` in backend: add block check, store timestamp, update counts, create notification
+- `unfollow()` in backend: decrement counts
+- `User` type: add `isLive: Bool` field
+- `UserProfile` type: add `isLive: Bool` field
+- `registerUser()`: initialize `isLive = false`
 
 ### Remove
-- Placeholder/hardcoded creator names in battle challenge sheet
-- Static battle score (replace with real per-session accumulator)
+
+- Nothing removed
 
 ## Implementation Plan
 
-1. Create `BattleInviteNotification.tsx` component (mirrors CoHostInviteNotification)
-2. Create `useBattleInvitePoller.ts` hook — polls conversations for `BATTLE_INVITE:` prefix DMs
-3. Update `LiveStreamViewPage.tsx`:
-   - Wire "Match Battle" button to open creator picker → send `BATTLE_INVITE:` DM
-   - Add battle invite detection for the current user (via hook)
-   - Replace basic split-screen score with real per-session gift accumulator
-   - Add `giftGoal` progress bar UI
-   - MVP crown animation on battle end (CSS keyframes)
-   - Rematch / Exit buttons on battle end screen
-   - Supporter icons (track top 3 gifters per side)
-4. Update `GiftAnimation.tsx` — add CSS keyframe animation variants per gift type
-5. Update `CoinWalletContext.tsx` — add giftGoal state + diamond balance derived from earnings
-6. Wire `BattleInviteNotification` into `App.tsx` (alongside CoHostInviteNotification)
-7. Add `LiveMatchBattlePage.tsx` for standalone battle view if needed
-8. Validate + deploy
+1. **Backend**: Add `isLive`, `BlockRecord`, `FollowRecord` (with timestamp), `Notification` types. Add `blockUsers` map, `followRecords` map, `notifications` map. Implement all new endpoints. Update `follow`/`unfollow` to manage counts, store records, create notifications, check blocks. Add `setLiveStatus`/`getLiveStatus`/`getLiveFollowing`.
+
+2. **Backend.d.ts**: Regenerated automatically after Motoko generation.
+
+3. **Frontend — LiveRingAvatar component**: Reusable avatar with animated red ring (isLive), gradient story ring (hasStory), green online dot.
+
+4. **Frontend — FollowButton component**: Handles follow/unfollow/friend states, calls backend, shows correct label.
+
+5. **Frontend — FollowersListPage / FollowingListPage**: Full-screen modal pages with real data, follow dates, tappable profiles.
+
+6. **Frontend — BlockedUsersPage**: In Settings → Privacy, shows blocked list with unblock.
+
+7. **Frontend — BlockUserModal**: Triggered from UserProfilePage → More Options.
+
+8. **Frontend — UserProfilePage updates**: Tappable counts, More Options → Block, LIVE badge, `LiveRingAvatar`.
+
+9. **Frontend — NotificationsPage updates**: Load real notifications from backend, mark read, tap to open profile.
+
+10. **Frontend — SettingsPage updates**: Add Privacy → Blocked Users entry.
+
+11. **Frontend — Home feed / InboxPage**: Swap plain avatars with `LiveRingAvatar`, filter blocked users.
