@@ -1,53 +1,52 @@
-# Sub Stream — Profile Video System & Post Management
+# Sub Stream — Live Co-Host & Battle System
 
 ## Current State
 
-- Profile page shows a 3-column video grid with gradient placeholders when no thumbnailUrl is present
-- Videos are stored with a `thumbnailUrl` field (Text) but no automated thumbnail extraction happens at upload time
-- No pin-to-profile feature exists on videos
-- No post management (edit/delete) menu exists on video cards in the profile grid
-- Comment panel shows comments but uses `author.toString()` truncated as the display name — no real user profile picture, display name, or @username is shown
-- Comment interactions (like, reply, tap avatar to view profile) are visual stubs only
-- ProfileVideoPlayer comment panel has the same shortcoming
+- `LiveStreamViewPage` has a basic battle mode (local state only) with a simple `battleChallengeOpen` sheet listing hardcoded "Creator A/B/C" opponents
+- The invite/guest system sends `LIVE_INVITE:${stream.id}` DMs but has no accept/decline UI
+- Split screen shows host + cohost panels but cohost has no real video — just a gradient background
+- Battle mode starts but has no proper 5-minute countdown, confetti win screen, or gift-to-score conversion
+- No viewer-side "someone invited you to join live" notification UI exists
+- No real co-host join flow exists (accepting the invite doesn't start a split screen)
 
 ## Requested Changes (Diff)
 
 ### Add
 
-- **Client-side thumbnail generation**: When a video is uploaded, extract a frame at 1 second using a hidden `<video>` element + `<canvas>`, convert to a base64 data URL, and pass it as the `thumbnailUrl` to `addVideo` (frontend only — no backend change needed, the field already exists)
-- **2-column profile video grid**: Change grid from `grid-cols-3` to `grid-cols-2`; each card shows thumbnail image, duration badge (`MM:SS`), and view count (`• N views`)
-- **Pin video feature**: Backend — add `pinnedVideoIds: [Nat]` field to User, plus `pinVideo(videoId)` and `unpinVideo(videoId)` mutations. Frontend — pinned videos sort to the top of the profile grid; pinned cards show a `📌 Pinned` label
-- **Post management menu** (three-dots `⋯` button on each video card in own profile):
-  - Edit post — opens a bottom sheet to edit caption, hashtags, and privacy
-  - Delete post — shows a confirmation dialog ("Delete this post?"), then calls backend `deleteVideo`
-  - Pin to profile / Unpin from profile — calls pin/unpin backend
-- **`updateVideo` backend method**: allows creator to update `caption`, `hashtags`, and `privacy` on their own video
-- **`deleteVideo` backend method**: creator removes their own video; also removes the video from all feeds
-- **`privacy` field on Video**: add `privacy: Text` (values: "everyone", "followers", "only_me") defaulting to "everyone"
-- **Real user data in comments**: Both `VideoCard` and `ProfileVideoPlayer` comment panels must look up `getUserProfile(comment.author)` and display: circular avatar (or initials fallback), Display Name, @username, comment text, timestamp. Tapping the avatar navigates to that user's profile
-- **Comment like**: `likeComment(commentId)` backend call wired to the heart button in comment panels
-- **Comment reply**: reply input per comment — calls `addComment` with a `replyToId` context (displayed as "Replying to @username" inline)
-- **`replyToId` field on Comment**: optional `?Nat` for threading
+- **CoHostInviteNotification component**: floating banner/modal that appears when a `LIVE_INVITE:` DM is received while the user is in the app. Shows "[username] invited you to join LIVE" with Accept / Decline buttons. On Accept: opens the host's live stream in co-host mode.
+- **Co-host join flow**: when guest accepts invite, their camera activates and split screen layout is shown
+- **Split screen layout** (`CoHostSplitScreen` sub-layout inside `LiveStreamViewPage`):
+  - Left: host video (real MediaStream or gradient fallback), creator name label, like count
+  - Right: guest video (local camera if guest, or gradient fallback), guest name, like count
+  - Both panels use `object-fit: cover`, fill equal halves of the screen
+  - Viewer profile circles row below each creator (up to 6 avatar bubbles)
+- **Battle interface**: when battle starts:
+  - Top battle bar: `[Host name] ❤️ {hostScore} | ⏱ {MM:SS} | ❤️ {guestScore} [Guest name]`
+  - Score fills from gifts sent to each side (gift.coins = points added to that creator's score)
+  - Default duration: 5 minutes (300 seconds)
+  - Viewers can tap "Support Host" or "Support Guest" side when sending gift
+- **Win screen** (at battle end): overlay with confetti animation, "🏆 Winner: [name]" banner, final scores, Close button
+- **Battle request popup** for the opponent: `"[hostName] wants to start a LIVE battle!"` with Accept / Decline
+- **Exit co-host**: either creator can tap X on their panel to leave; if guest leaves → single view; if host ends → stream ends for both
+- **Gift scoring**: gift sent during battle adds `gift.coins` to the selected side's score (left = host, right = guest)
+- **Confetti animation**: pure CSS/JS particle confetti, 60 colored squares rain down on win
 
 ### Modify
 
-- `VideoCard.tsx` — comment panel: replace truncated principal string with real user profile lookup per comment author
-- `ProfileVideoPlayer.tsx` — comment panel: same real user profile upgrade
-- `ProfilePage.tsx` — `VideoGrid`: change to 2-column layout, add three-dots menu per card, add 📌 Pinned label, sort pinned videos first
-- Upload flow (`PublishPage.tsx` or `VideoUploadPage.tsx`) — auto-generate thumbnail from video file before calling `addVideo`
-- `Video` type in backend — add `privacy: Text` field
-- `Comment` type in backend — add `replyToId: ?Nat` field
-- `User` type in backend — add `pinnedVideoIds: [Nat]` field
+- `LiveStreamViewPage`: replace the hardcoded "Creator A/B/C" battle sheet with a real user picker + battle request flow; extend split screen to support real guest camera; add proper 5-min battle timer; wire gift scoring to battle points
+- `App.tsx`: poll for `LIVE_INVITE:` DMs while authenticated and not in a live stream; show the co-host invite notification when received
+- Battle timer: change from 60s to 300s (5 minutes)
 
 ### Remove
 
-- Gradient placeholder fallback in profile grid (when a real thumbnailUrl is present — keep gradient only as fallback for videos without thumbnails)
+- Hardcoded `["Creator A", "Creator B", "Creator C"]` in the battle challenge sheet
+- The separate `battleChallengeOpen` logic replaced by real user invite system
 
 ## Implementation Plan
 
-1. **Backend (`main.mo`)**: Add `pinnedVideoIds` to User, `privacy` to Video, `replyToId` to Comment. Add `pinVideo`, `unpinVideo`, `deleteVideo`, `updateVideo`, `likeComment` methods
-2. **Frontend — thumbnail generation**: In upload flow (PublishPage/VideoUploadPage), use canvas to extract frame at 1s, produce data URL, store as `thumbnailUrl`
-3. **Frontend — ProfilePage VideoGrid**: Switch to 2-column, add `• N views` + duration, three-dots menu with Edit/Delete/Pin/Unpin, 📌 Pinned label, pin-sorted order
-4. **Frontend — Edit post sheet**: Bottom sheet with caption textarea, hashtags input, privacy select; calls `updateVideo`
-5. **Frontend — Delete confirmation**: AlertDialog with "Delete this post?" — calls `deleteVideo`, invalidates `profileVideos` and `allVideos` queries
-6. **Frontend — Comment panels (VideoCard + ProfileVideoPlayer)**: For each comment, call `getUserProfile(comment.author)` to get avatar, display name, @username; render circular avatar + name + @handle; wire heart to `likeComment`; add reply UI
+1. Create `src/components/CoHostInviteNotification.tsx` — floating invite banner with Accept/Decline
+2. Create `src/hooks/useLiveInvitePoller.ts` — polls DMs for `LIVE_INVITE:` messages
+3. Create `src/components/BattleConfetti.tsx` — confetti win animation
+4. Extend `LiveStreamViewPage` with full split screen co-host, 5-min battle timer, gift-to-score routing, confetti win screen
+5. Wire invite accept flow in `App.tsx` to launch split screen view
+6. Validate and deploy

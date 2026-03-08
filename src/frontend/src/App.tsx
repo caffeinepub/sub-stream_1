@@ -3,11 +3,16 @@ import { Zap } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { BottomNav, type BottomNavScreen } from "./components/BottomNav";
+import { CoHostInviteNotification } from "./components/CoHostInviteNotification";
 import { CreateMenu } from "./components/CreateMenu";
+import { LiveEndScreen, type LiveEndStats } from "./components/LiveEndScreen";
 import { TopNav } from "./components/TopNav";
 import { VideoFeed } from "./components/VideoFeed";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { CoinWalletProvider } from "./context/CoinWalletContext";
 import type { LiveStream } from "./data/liveStreams";
+import { useLiveInvitePoller } from "./hooks/useLiveInvitePoller";
+import { CoinRechargePage } from "./pages/CoinRechargePage";
 import { CreateFlowPage } from "./pages/CreateFlowPage";
 import { GoLiveSetupPage } from "./pages/GoLiveSetupPage";
 import { InboxPage } from "./pages/InboxPage";
@@ -32,12 +37,14 @@ type Screen =
   | "settings"
   | "live"
   | "live-view"
+  | "live-end"
   | "go-live-setup"
   | "upload-video"
   | "video-editor"
   | "create-flow"
   | "user-profile"
-  | "search";
+  | "search"
+  | "coin-recharge";
 
 // ─── Loading Screen ────────────────────────────────────────────────────────────
 function LoadingScreen() {
@@ -114,6 +121,7 @@ function AppShell() {
     needsUsername,
     logout,
     userProfile,
+    actor,
   } = useAuth();
   const [screen, setScreen] = useState<Screen>("feed");
   const [createOpen, setCreateOpen] = useState(false);
@@ -122,6 +130,31 @@ function AppShell() {
   const [viewingProfilePrincipal, setViewingProfilePrincipal] = useState<
     string | null
   >(null);
+  const [liveEndStats, setLiveEndStats] = useState<LiveEndStats | null>(null);
+  const [isSavingReplay, setIsSavingReplay] = useState(false);
+  const [liveMediaStream, setLiveMediaStream] = useState<MediaStream | null>(
+    null,
+  );
+  const [pendingInvite, setPendingInvite] = useState<{
+    fromName: string;
+    fromPrincipal: string;
+    streamId: string;
+  } | null>(null);
+
+  const effectiveScreenForPoller: Screen =
+    screen === "login" || screen === "register" ? "feed" : screen;
+
+  // Poll for live co-host invites when not already in a stream
+  useLiveInvitePoller({
+    enabled: isAuthenticated && effectiveScreenForPoller !== "live-view",
+    onInviteReceived: (invite) => {
+      setPendingInvite({
+        fromName: invite.fromName,
+        fromPrincipal: invite.fromPrincipal,
+        streamId: invite.streamId,
+      });
+    },
+  });
 
   const handleJoinLiveFromProfile = (
     principalStr: string,
@@ -228,299 +261,403 @@ function AppShell() {
     screen === "login" || screen === "register" ? "feed" : screen;
 
   return (
-    <AnimatePresence mode="wait">
-      {/* Create Flow (3-step: camera → editor → publish) */}
-      {effectiveScreen === "create-flow" && (
-        <motion.div
-          key="create-flow"
-          initial={{ opacity: 0, y: 40 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 40 }}
-          transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-          className="fixed inset-0 z-50"
-        >
-          <CreateFlowPage
-            onBack={() => setScreen("feed")}
-            onDone={() => setScreen("feed")}
-            onGoLive={() => setScreen("go-live-setup")}
-          />
-        </motion.div>
-      )}
+    <>
+      {/* Co-host invite notification — always mounted, floats above everything */}
+      <CoHostInviteNotification
+        invite={pendingInvite}
+        onAccept={(invite) => {
+          setPendingInvite(null);
+          const coHostStream: LiveStream = {
+            id: invite.streamId,
+            hostName: invite.fromName,
+            hostAvatar: "",
+            title: `${invite.fromName}'s Live Stream`,
+            category: "Live",
+            viewerCount: 0,
+            gradientFrom: "from-purple-900",
+            gradientTo: "to-indigo-900",
+            isHost: false,
+            hostPrincipal: invite.fromPrincipal,
+          };
+          setSelectedStream(coHostStream);
+          setIsHostStream(false);
+          setLiveMediaStream(null);
+          setScreen("live-view");
+        }}
+        onDecline={() => setPendingInvite(null)}
+      />
 
-      {/* Upload Video page (legacy — kept for backward compat) */}
-      {effectiveScreen === "upload-video" && (
-        <motion.div
-          key="upload-video"
-          initial={{ opacity: 0, y: 40 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 40 }}
-          transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-          className="fixed inset-0 z-50"
-        >
-          <VideoUploadPage
-            onBack={() => setScreen("feed")}
-            onUploaded={() => setScreen("feed")}
-          />
-        </motion.div>
-      )}
+      <AnimatePresence mode="wait">
+        {/* Create Flow (3-step: camera → editor → publish) */}
+        {effectiveScreen === "create-flow" && (
+          <motion.div
+            key="create-flow"
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 40 }}
+            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed inset-0 z-50"
+          >
+            <CreateFlowPage
+              onBack={() => setScreen("feed")}
+              onDone={() => setScreen("feed")}
+              onGoLive={() => setScreen("go-live-setup")}
+            />
+          </motion.div>
+        )}
 
-      {/* User Profile page */}
-      {effectiveScreen === "user-profile" && viewingProfilePrincipal && (
-        <motion.div
-          key="user-profile"
-          initial={{ opacity: 0, x: 60 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: 60 }}
-          transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-          className="fixed inset-0 z-40 overflow-y-auto"
-          style={{ background: "#000" }}
-        >
-          <UserProfilePage
-            principalStr={viewingProfilePrincipal}
-            onBack={() => setScreen("feed")}
-          />
-        </motion.div>
-      )}
+        {/* Upload Video page (legacy — kept for backward compat) */}
+        {effectiveScreen === "upload-video" && (
+          <motion.div
+            key="upload-video"
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 40 }}
+            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed inset-0 z-50"
+          >
+            <VideoUploadPage
+              onBack={() => setScreen("feed")}
+              onUploaded={() => setScreen("feed")}
+            />
+          </motion.div>
+        )}
 
-      {/* Profile page */}
-      {effectiveScreen === "profile" && (
-        <motion.div
-          key="profile"
-          initial={{ opacity: 0, x: 60 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: 60 }}
-          transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-          className="fixed inset-0 z-40 overflow-y-auto"
-          style={{ background: "#000" }}
-        >
-          <ProfilePage
-            onBack={() => setScreen("feed")}
-            onSettings={() => setScreen("settings")}
-          />
-          <BottomNav
-            activeScreen="profile"
-            onOpenCreate={() => setCreateOpen(true)}
-            onNavigate={handleBottomNav}
-          />
-        </motion.div>
-      )}
+        {/* User Profile page */}
+        {effectiveScreen === "user-profile" && viewingProfilePrincipal && (
+          <motion.div
+            key="user-profile"
+            initial={{ opacity: 0, x: 60 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 60 }}
+            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed inset-0 z-40 overflow-y-auto"
+            style={{ background: "#000" }}
+          >
+            <UserProfilePage
+              principalStr={viewingProfilePrincipal}
+              onBack={() => setScreen("feed")}
+            />
+          </motion.div>
+        )}
 
-      {/* Settings page */}
-      {effectiveScreen === "settings" && (
-        <motion.div
-          key="settings"
-          initial={{ opacity: 0, x: 60 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: 60 }}
-          transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-          className="fixed inset-0 z-40"
-          style={{ background: "#000" }}
-        >
-          <SettingsPage
-            onBack={() => setScreen("profile")}
-            onLogout={handleLogout}
-          />
-        </motion.div>
-      )}
+        {/* Profile page */}
+        {effectiveScreen === "profile" && (
+          <motion.div
+            key="profile"
+            initial={{ opacity: 0, x: 60 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 60 }}
+            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed inset-0 z-40 overflow-y-auto"
+            style={{ background: "#000" }}
+          >
+            <ProfilePage
+              onBack={() => setScreen("feed")}
+              onSettings={() => setScreen("settings")}
+            />
+            <BottomNav
+              activeScreen="profile"
+              onOpenCreate={() => setCreateOpen(true)}
+              onNavigate={handleBottomNav}
+            />
+          </motion.div>
+        )}
 
-      {/* Friends screen */}
-      {effectiveScreen === "friends" && (
-        <motion.div
-          key="friends"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.25 }}
-          className="fixed inset-0 z-10"
-        >
-          <FriendsScreen />
-          <TopNav />
-          <BottomNav
-            activeScreen="friends"
-            onOpenCreate={() => setCreateOpen(true)}
-            onNavigate={handleBottomNav}
-          />
-        </motion.div>
-      )}
+        {/* Settings page */}
+        {effectiveScreen === "settings" && (
+          <motion.div
+            key="settings"
+            initial={{ opacity: 0, x: 60 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 60 }}
+            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed inset-0 z-40"
+            style={{ background: "#000" }}
+          >
+            <SettingsPage
+              onBack={() => setScreen("profile")}
+              onLogout={handleLogout}
+            />
+          </motion.div>
+        )}
 
-      {/* Inbox screen */}
-      {effectiveScreen === "inbox" && (
-        <motion.div
-          key="inbox"
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -20 }}
-          transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-          className="fixed inset-0 z-10 overflow-y-auto"
-        >
-          <InboxPage onJoinLiveStream={handleJoinLiveFromProfile} />
-          <BottomNav
-            activeScreen="inbox"
-            onOpenCreate={() => setCreateOpen(true)}
-            onNavigate={handleBottomNav}
-          />
-        </motion.div>
-      )}
+        {/* Friends screen */}
+        {effectiveScreen === "friends" && (
+          <motion.div
+            key="friends"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.25 }}
+            className="fixed inset-0 z-10"
+          >
+            <FriendsScreen />
+            <TopNav />
+            <BottomNav
+              activeScreen="friends"
+              onOpenCreate={() => setCreateOpen(true)}
+              onNavigate={handleBottomNav}
+            />
+          </motion.div>
+        )}
 
-      {/* Search page */}
-      {effectiveScreen === "search" && (
-        <motion.div
-          key="search"
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -20 }}
-          transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-          className="fixed inset-0 z-30"
-          style={{ background: "#000" }}
-        >
-          <SearchPage
-            onBack={() => setScreen("feed")}
-            onNavigateToProfile={(principalStr) => {
-              setViewingProfilePrincipal(principalStr);
-              setScreen("user-profile");
-            }}
-          />
-        </motion.div>
-      )}
+        {/* Inbox screen */}
+        {effectiveScreen === "inbox" && (
+          <motion.div
+            key="inbox"
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed inset-0 z-10 overflow-y-auto"
+          >
+            <InboxPage onJoinLiveStream={handleJoinLiveFromProfile} />
+            <BottomNav
+              activeScreen="inbox"
+              onOpenCreate={() => setCreateOpen(true)}
+              onNavigate={handleBottomNav}
+            />
+          </motion.div>
+        )}
 
-      {/* Main feed */}
-      {effectiveScreen === "feed" && (
-        <motion.div
-          key="feed"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.25 }}
-          className="relative w-full h-screen overflow-hidden bg-black"
-        >
-          <VideoFeed
-            onOpenCreate={() => setCreateOpen(true)}
-            onNavigateToProfile={(principalStr) => {
-              setViewingProfilePrincipal(principalStr);
-              setScreen("user-profile");
-            }}
-            onJoinLiveStream={handleJoinLiveFromProfile}
-          />
-          <TopNav
-            onNavigate={(tab) => {
-              if (tab === "LIVE") setScreen("live");
-            }}
-            onSearch={() => setScreen("search")}
-            searchActive={screen === "search"}
-          />
-          <BottomNav
-            activeScreen={bottomActive}
-            onOpenCreate={() => setCreateOpen(true)}
-            onNavigate={handleBottomNav}
-          />
-          <CreateMenu
-            open={createOpen}
-            onClose={() => setCreateOpen(false)}
-            onGoLive={() => setScreen("go-live-setup")}
-            onUploadVideo={() => {
-              setCreateOpen(false);
-              setScreen("create-flow");
-            }}
-            onRecordShort={() => {
-              setCreateOpen(false);
-              setScreen("create-flow");
-            }}
-          />
-        </motion.div>
-      )}
+        {/* Search page */}
+        {effectiveScreen === "search" && (
+          <motion.div
+            key="search"
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed inset-0 z-30"
+            style={{ background: "#000" }}
+          >
+            <SearchPage
+              onBack={() => setScreen("feed")}
+              onNavigateToProfile={(principalStr) => {
+                setViewingProfilePrincipal(principalStr);
+                setScreen("user-profile");
+              }}
+            />
+          </motion.div>
+        )}
 
-      {/* Live Discovery page */}
-      {effectiveScreen === "live" && (
-        <motion.div
-          key="live"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 20 }}
-          transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-          className="fixed inset-0 z-20"
-        >
-          <LiveDiscoveryPage
-            onOpenStream={(stream) => {
-              setSelectedStream(stream);
-              setScreen("live-view");
-            }}
-            onGoLive={() => setScreen("go-live-setup")}
-          />
-          <BottomNav
-            activeScreen={bottomActive}
-            onOpenCreate={() => setCreateOpen(true)}
-            onNavigate={handleBottomNav}
-          />
-          <CreateMenu
-            open={createOpen}
-            onClose={() => setCreateOpen(false)}
-            onGoLive={() => setScreen("go-live-setup")}
-            onUploadVideo={() => {
-              setCreateOpen(false);
-              setScreen("create-flow");
-            }}
-            onRecordShort={() => {
-              setCreateOpen(false);
-              setScreen("create-flow");
-            }}
-          />
-        </motion.div>
-      )}
+        {/* Main feed */}
+        {effectiveScreen === "feed" && (
+          <motion.div
+            key="feed"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.25 }}
+            className="relative w-full h-screen overflow-hidden bg-black"
+          >
+            <VideoFeed
+              onOpenCreate={() => setCreateOpen(true)}
+              onNavigateToProfile={(principalStr) => {
+                setViewingProfilePrincipal(principalStr);
+                setScreen("user-profile");
+              }}
+              onJoinLiveStream={handleJoinLiveFromProfile}
+            />
+            <TopNav
+              onNavigate={(tab) => {
+                if (tab === "LIVE") setScreen("live");
+              }}
+              onSearch={() => setScreen("search")}
+              searchActive={screen === "search"}
+            />
+            <BottomNav
+              activeScreen={bottomActive}
+              onOpenCreate={() => setCreateOpen(true)}
+              onNavigate={handleBottomNav}
+            />
+            <CreateMenu
+              open={createOpen}
+              onClose={() => setCreateOpen(false)}
+              onGoLive={() => setScreen("go-live-setup")}
+              onUploadVideo={() => {
+                setCreateOpen(false);
+                setScreen("create-flow");
+              }}
+              onRecordShort={() => {
+                setCreateOpen(false);
+                setScreen("create-flow");
+              }}
+            />
+          </motion.div>
+        )}
 
-      {/* Live stream view */}
-      {effectiveScreen === "live-view" && selectedStream && (
-        <motion.div
-          key="live-view"
-          initial={{ opacity: 0, y: 40 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 40 }}
-          transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-          className="fixed inset-0 z-40"
-        >
-          <LiveStreamViewPage
-            stream={selectedStream}
-            isHost={isHostStream}
-            onBack={() => setScreen("live")}
-            onEnd={() => {
-              setIsHostStream(false);
-              setScreen("live");
-            }}
-          />
-        </motion.div>
-      )}
+        {/* Live Discovery page */}
+        {effectiveScreen === "live" && (
+          <motion.div
+            key="live"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed inset-0 z-20"
+          >
+            <LiveDiscoveryPage
+              onOpenStream={(stream) => {
+                setSelectedStream(stream);
+                setScreen("live-view");
+              }}
+              onGoLive={() => setScreen("go-live-setup")}
+            />
+            <BottomNav
+              activeScreen={bottomActive}
+              onOpenCreate={() => setCreateOpen(true)}
+              onNavigate={handleBottomNav}
+            />
+            <CreateMenu
+              open={createOpen}
+              onClose={() => setCreateOpen(false)}
+              onGoLive={() => setScreen("go-live-setup")}
+              onUploadVideo={() => {
+                setCreateOpen(false);
+                setScreen("create-flow");
+              }}
+              onRecordShort={() => {
+                setCreateOpen(false);
+                setScreen("create-flow");
+              }}
+            />
+          </motion.div>
+        )}
 
-      {/* Go Live setup page */}
-      {effectiveScreen === "go-live-setup" && (
-        <motion.div
-          key="go-live-setup"
-          initial={{ opacity: 0, y: 60 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 60 }}
-          transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
-          className="fixed inset-0 z-40"
-        >
-          <GoLiveSetupPage
-            onBack={() => setScreen("live")}
-            onStartLive={(config) => {
-              const newStream: LiveStream = {
-                id: Date.now().toString(),
-                hostName: userProfile?.name ?? "You",
-                hostAvatar: "",
-                title: config.title,
-                category: config.category,
-                viewerCount: 0,
-                gradientFrom: "from-rose-900",
-                gradientTo: "to-pink-900",
-                isHost: true,
-              };
-              setSelectedStream(newStream);
-              setIsHostStream(true);
-              setScreen("live-view");
-            }}
-          />
-        </motion.div>
-      )}
-    </AnimatePresence>
+        {/* Live stream view */}
+        {effectiveScreen === "live-view" && selectedStream && (
+          <motion.div
+            key="live-view"
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 40 }}
+            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed inset-0 z-40"
+          >
+            <LiveStreamViewPage
+              stream={selectedStream}
+              isHost={isHostStream}
+              mediaStream={liveMediaStream ?? undefined}
+              onBack={() => {
+                setLiveMediaStream(null);
+                setScreen("live");
+              }}
+              onOpenRecharge={() => setScreen("coin-recharge")}
+              onEnd={(stats) => {
+                if (isHostStream) {
+                  setLiveEndStats({
+                    totalViewers: stats.totalViewers,
+                    totalLikes: stats.totalLikes,
+                    totalGifts: stats.totalGifts,
+                    durationMs: Date.now() - stats.startedAt,
+                  });
+                  setScreen("live-end");
+                } else {
+                  setIsHostStream(false);
+                  setLiveMediaStream(null);
+                  setScreen("live");
+                }
+              }}
+            />
+          </motion.div>
+        )}
+
+        {/* Live end summary screen */}
+        {effectiveScreen === "live-end" && liveEndStats && (
+          <motion.div
+            key="live-end"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="fixed inset-0 z-50"
+          >
+            <LiveEndScreen
+              stats={liveEndStats}
+              isSaving={isSavingReplay}
+              onSave={async () => {
+                setIsSavingReplay(true);
+                if (actor && selectedStream) {
+                  try {
+                    await actor.addVideo(
+                      `Live: ${selectedStream.title}`,
+                      `Live stream recording — ${new Date().toLocaleDateString()}`,
+                      "",
+                      "",
+                      ["#live", "#stream"],
+                      "public",
+                    );
+                  } catch {
+                    // silent
+                  }
+                }
+                setIsSavingReplay(false);
+                setIsHostStream(false);
+                setLiveMediaStream(null);
+                setLiveEndStats(null);
+                setScreen("live");
+              }}
+              onDelete={() => {
+                setIsHostStream(false);
+                setLiveMediaStream(null);
+                setLiveEndStats(null);
+                setScreen("live");
+              }}
+            />
+          </motion.div>
+        )}
+
+        {/* Coin Recharge page */}
+        {effectiveScreen === "coin-recharge" && (
+          <motion.div
+            key="coin-recharge"
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 40 }}
+            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed inset-0 z-50"
+          >
+            <CoinRechargePage onBack={() => setScreen("feed")} />
+          </motion.div>
+        )}
+
+        {/* Go Live setup page */}
+        {effectiveScreen === "go-live-setup" && (
+          <motion.div
+            key="go-live-setup"
+            initial={{ opacity: 0, y: 60 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 60 }}
+            transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed inset-0 z-40"
+          >
+            <GoLiveSetupPage
+              onBack={() => setScreen("live")}
+              onStartLive={(config) => {
+                // Store the real camera/screen stream
+                setLiveMediaStream(config.stream ?? null);
+                const newStream: LiveStream = {
+                  id: Date.now().toString(),
+                  hostName: userProfile?.name ?? "You",
+                  hostAvatar: "",
+                  title: config.title,
+                  category: config.category,
+                  viewerCount: 0,
+                  gradientFrom: "from-rose-900",
+                  gradientTo: "to-pink-900",
+                  isHost: true,
+                };
+                setSelectedStream(newStream);
+                setIsHostStream(true);
+                setScreen("live-view");
+              }}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
   );
 }
 
@@ -528,20 +665,22 @@ function AppShell() {
 export default function App() {
   return (
     <AuthProvider>
-      <div className="relative w-full h-screen overflow-hidden bg-black">
-        <AppShell />
-        <Toaster
-          position="top-center"
-          toastOptions={{
-            style: {
-              background: "rgba(20,20,20,0.95)",
-              border: "1px solid rgba(255,255,255,0.1)",
-              color: "white",
-              backdropFilter: "blur(12px)",
-            },
-          }}
-        />
-      </div>
+      <CoinWalletProvider>
+        <div className="relative w-full h-screen overflow-hidden bg-black">
+          <AppShell />
+          <Toaster
+            position="top-center"
+            toastOptions={{
+              style: {
+                background: "rgba(20,20,20,0.95)",
+                border: "1px solid rgba(255,255,255,0.1)",
+                color: "white",
+                backdropFilter: "blur(12px)",
+              },
+            }}
+          />
+        </div>
+      </CoinWalletProvider>
     </AuthProvider>
   );
 }

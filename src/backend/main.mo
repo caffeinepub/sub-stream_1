@@ -5,7 +5,7 @@ import Iter "mo:core/Iter";
 import Time "mo:core/Time";
 import Runtime "mo:core/Runtime";
 import Principal "mo:core/Principal";
-import Migration "migration";
+
 
 import MixinAuthorization "authorization/MixinAuthorization";
 import Storage "blob-storage/Storage";
@@ -13,7 +13,7 @@ import MixinStorage "blob-storage/Mixin";
 import AccessControl "authorization/access-control";
 
 // Enable State Migration via with-clause
-(with migration = Migration.run)
+
 actor {
   // Storage
   include MixinStorage();

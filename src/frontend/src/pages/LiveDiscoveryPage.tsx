@@ -46,7 +46,7 @@ export function LiveDiscoveryPage({
             </h1>
           </div>
           <span className="text-white/40 text-sm ml-auto">
-            {mockLiveStreams.length} streaming now
+            {filtered.length > 0 ? `${filtered.length} streaming now` : ""}
           </span>
         </div>
 

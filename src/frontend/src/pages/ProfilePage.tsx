@@ -809,7 +809,13 @@ export function ProfilePage({ onBack, onSettings }: ProfilePageProps) {
         )}
         {activeTab === "shorts" && <ComingSoonPlaceholder label="Shorts" />}
         {activeTab === "replays" && (
-          <ComingSoonPlaceholder label="Live Replays" />
+          <LiveReplaysTab
+            videos={videos}
+            onVideoTap={(i) => {
+              setPlayerIndex(i);
+              setPlayerOpen(true);
+            }}
+          />
         )}
       </div>
 
@@ -1286,6 +1292,100 @@ function VideoDurationBadgeInline({ videoUrl }: { videoUrl: string }) {
         </span>
       )}
     </>
+  );
+}
+
+function LiveReplaysTab({
+  videos,
+  onVideoTap,
+}: {
+  videos: Video[];
+  onVideoTap: (index: number) => void;
+}) {
+  const replays = videos.filter((v) => v.title.startsWith("Live:"));
+
+  if (replays.length === 0) {
+    return (
+      <div
+        data-ocid="profile.replays_empty_state"
+        className="flex flex-col items-center justify-center py-16 text-center px-8"
+      >
+        <div
+          className="w-16 h-16 rounded-full flex items-center justify-center mb-4"
+          style={{ background: "rgba(255,0,80,0.1)" }}
+        >
+          <span className="text-2xl">🎬</span>
+        </div>
+        <p className="text-white/60 text-sm font-medium mb-1">
+          No live replays yet
+        </p>
+        <p className="text-white/30 text-xs leading-relaxed">
+          When you end a live stream and choose "Save Replay", it will appear
+          here.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-2 gap-0.5 mt-1">
+      {replays.map((video, i) => {
+        const originalIdx = videos.indexOf(video);
+        return (
+          <button
+            key={video.id.toString()}
+            type="button"
+            data-ocid={`profile.replay.item.${i + 1}`}
+            onClick={() => onVideoTap(originalIdx)}
+            className="aspect-[9/16] rounded-sm overflow-hidden relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff0050]"
+            style={{
+              background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)",
+            }}
+            aria-label={`Watch replay: ${video.title}`}
+          >
+            {video.thumbnailUrl ? (
+              <img
+                src={video.thumbnailUrl}
+                alt={video.title}
+                className="w-full h-full object-cover"
+                loading="lazy"
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center">
+                <span className="text-3xl">🎬</span>
+              </div>
+            )}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent pointer-events-none" />
+            {/* LIVE replay badge */}
+            <div
+              className="absolute top-1.5 left-1.5 flex items-center gap-1 px-1.5 py-0.5 rounded-full"
+              style={{ background: "rgba(255,0,80,0.75)" }}
+            >
+              <span className="text-white text-[9px] font-bold tracking-wider">
+                REPLAY
+              </span>
+            </div>
+            {/* Title at bottom */}
+            <div className="absolute bottom-1.5 left-1.5 right-1.5">
+              <p
+                className="text-white text-[10px] font-medium truncate leading-tight"
+                style={{ textShadow: "0 1px 3px rgba(0,0,0,0.9)" }}
+              >
+                {video.title.replace(/^Live:\s*/, "")}
+              </p>
+              <div className="flex items-center gap-0.5 mt-0.5">
+                <Play size={8} fill="white" stroke="none" />
+                <span className="text-white/60 text-[9px]">
+                  {Number(video.viewCount) > 0
+                    ? `${Number(video.viewCount).toLocaleString()} views`
+                    : "0 views"}
+                </span>
+              </div>
+            </div>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

@@ -3,6 +3,7 @@ interface LiveChatMessageProps {
   message: string;
   isGift?: boolean;
   giftEmoji?: string;
+  avatarUrl?: string;
 }
 
 // Deterministic gradient from username string
@@ -31,17 +32,26 @@ export function LiveChatMessage({
   message,
   isGift = false,
   giftEmoji,
+  avatarUrl,
 }: LiveChatMessageProps) {
   if (isGift) {
     return (
       <div className="flex items-center gap-2 my-0.5">
         {/* Avatar */}
-        <div
-          className="w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center text-white text-[9px] font-bold"
-          style={{ background: getUserGradient(username) }}
-        >
-          {getInitials(username)}
-        </div>
+        {avatarUrl ? (
+          <img
+            src={avatarUrl}
+            alt={username}
+            className="w-6 h-6 rounded-full flex-shrink-0 object-cover"
+          />
+        ) : (
+          <div
+            className="w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center text-white text-[9px] font-bold"
+            style={{ background: getUserGradient(username) }}
+          >
+            {getInitials(username)}
+          </div>
+        )}
         {/* Gift pill */}
         <div
           className="px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5"
@@ -62,12 +72,20 @@ export function LiveChatMessage({
   return (
     <div className="flex items-start gap-2 my-0.5">
       {/* Avatar */}
-      <div
-        className="w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center text-white text-[9px] font-bold mt-0.5"
-        style={{ background: getUserGradient(username) }}
-      >
-        {getInitials(username)}
-      </div>
+      {avatarUrl ? (
+        <img
+          src={avatarUrl}
+          alt={username}
+          className="w-6 h-6 rounded-full flex-shrink-0 object-cover mt-0.5"
+        />
+      ) : (
+        <div
+          className="w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center text-white text-[9px] font-bold mt-0.5"
+          style={{ background: getUserGradient(username) }}
+        >
+          {getInitials(username)}
+        </div>
+      )}
       {/* Message */}
       <div className="flex-1 min-w-0">
         <span
