@@ -26,6 +26,7 @@ interface VideoFeedProps {
   onNavigateToProfile?: (principal: string) => void;
   onJoinLiveStream?: (principalStr: string, displayName: string) => void;
   feedTab?: TopNavTab;
+  onCommentPanelChange?: (open: boolean) => void;
 }
 
 interface StoryUserEntry {
@@ -191,6 +192,7 @@ export function VideoFeed({
   onNavigateToProfile,
   onJoinLiveStream,
   feedTab = "For You",
+  onCommentPanelChange,
 }: VideoFeedProps) {
   const { actor, isAuthenticated, userProfile } = useAuth();
   const { identity } = useInternetIdentity();
@@ -566,6 +568,7 @@ export function VideoFeed({
                 onNavigateToProfile={onNavigateToProfile}
                 isMuted={isMuted}
                 onMuteChange={setIsMuted}
+                onCommentPanelChange={onCommentPanelChange}
                 onLike={(hashtags) => {
                   if (callerPrincipal) {
                     updateUserInterests(callerPrincipal, hashtags, "like");
@@ -629,6 +632,7 @@ export function VideoFeed({
               onNavigateToProfile={onNavigateToProfile}
               isMuted={isMuted}
               onMuteChange={setIsMuted}
+              onCommentPanelChange={onCommentPanelChange}
               onLike={(hashtags) => {
                 if (callerPrincipal) {
                   updateUserInterests(callerPrincipal, hashtags, "like");

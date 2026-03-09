@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bookmark,
   CornerDownRight,
+  Gift,
   Heart,
   Link,
   MessageCircle,
@@ -9,14 +10,21 @@ import {
   Play,
   Send,
   Share2,
+  Smile,
   Sparkles,
+  Star,
   UserCheck,
   Volume2,
   VolumeX,
   X,
 } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import {
+  AnimatePresence,
+  motion,
+  useMotionValue,
+  useTransform,
+} from "motion/react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { Comment, Video, VideoInteractionState } from "../backend.d";
 import { useAuth } from "../context/AuthContext";
@@ -70,7 +78,72 @@ interface VideoCardProps {
   onMuteChange: (muted: boolean) => void;
   /** Called when a like action occurs — passes video hashtags for interest tracking */
   onLike?: (hashtags: string[]) => void;
+  /** Called when the comment panel opens/closes so the parent can hide BottomNav */
+  onCommentPanelChange?: (open: boolean) => void;
 }
+
+// ─── Gift catalog ─────────────────────────────────────────────────────────────
+const GIFTS = [
+  { id: "rose", emoji: "🌹", name: "Rose", coins: 1 },
+  { id: "heart", emoji: "❤️", name: "Heart", coins: 1 },
+  { id: "fire", emoji: "🔥", name: "Fire", coins: 5 },
+  { id: "star", emoji: "⭐", name: "Star", coins: 5 },
+  { id: "diamond", emoji: "💎", name: "Diamond", coins: 30 },
+  { id: "crown", emoji: "👑", name: "Crown", coins: 99 },
+  { id: "rocket", emoji: "🚀", name: "Rocket", coins: 199 },
+  { id: "lion", emoji: "🦁", name: "Lion", coins: 499 },
+  { id: "phoenix", emoji: "🦅", name: "Phoenix", coins: 999 },
+] as const;
+
+// ─── Emoji picker data ────────────────────────────────────────────────────────
+const EMOJIS = [
+  "😂",
+  "❤️",
+  "😍",
+  "🤣",
+  "😊",
+  "🙏",
+  "💕",
+  "😭",
+  "😘",
+  "👍",
+  "😅",
+  "👏",
+  "😁",
+  "🔥",
+  "🥰",
+  "💯",
+  "🤦",
+  "🤷",
+  "😢",
+  "🙄",
+  "😏",
+  "🎉",
+  "👀",
+  "✨",
+  "😔",
+  "💪",
+  "🤩",
+  "😎",
+  "🤔",
+  "🥳",
+];
+
+// ─── Sticker data ─────────────────────────────────────────────────────────────
+const STICKERS = [
+  "🥳",
+  "🤯",
+  "💀",
+  "👻",
+  "🤡",
+  "👽",
+  "🤖",
+  "😈",
+  "🎃",
+  "💩",
+  "🤬",
+  "🥸",
+];
 
 export function VideoCard({
   video,
@@ -79,14 +152,19 @@ export function VideoCard({
   isMuted,
   onMuteChange,
   onLike,
+  onCommentPanelChange,
 }: VideoCardProps) {
   const { actor, userProfile } = useAuth();
   const queryClient = useQueryClient();
   const [heartBursts, setHeartBursts] = useState<HeartBurst[]>([]);
   const [isPlaying, setIsPlaying] = useState(true);
   const [commentPanelOpen, setCommentPanelOpen] = useState(false);
+  const [giftPanelOpen, setGiftPanelOpen] = useState(false);
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+  const [stickerPanelOpen, setStickerPanelOpen] = useState(false);
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
   const [commentText, setCommentText] = useState("");
+  const commentScrollRef = useRef<HTMLDivElement>(null);
   // Reply state
   const [replyingTo, setReplyingTo] = useState<{
     id: bigint;
@@ -97,6 +175,17 @@ export function VideoCard({
     new Set(),
   );
   const commentInputRef = useRef<HTMLInputElement>(null);
+
+  // Swipe-to-close motion value for the comment panel
+  const panelY = useMotionValue(0);
+  const panelOpacity = useTransform(panelY, [0, 200], [1, 0]);
+  const swipeStartY = useRef<number | null>(null);
+
+  // Notify parent when panel opens/closes
+  // biome-ignore lint/correctness/useExhaustiveDependencies: onCommentPanelChange is a callback ref — adding it would cause infinite loops
+  useEffect(() => {
+    onCommentPanelChange?.(commentPanelOpen);
+  }, [commentPanelOpen]);
 
   // Refs for tap detection
   const lastTapRef = useRef<number>(0);
@@ -159,6 +248,17 @@ export function VideoCard({
     enabled: !!actor && commentPanelOpen,
     staleTime: 10_000,
   });
+
+  // Auto-scroll to newest comments when panel opens or new comment arrives
+  // biome-ignore lint/correctness/useExhaustiveDependencies: commentScrollRef is a stable ref
+  useEffect(() => {
+    if (commentPanelOpen && commentScrollRef.current) {
+      const el = commentScrollRef.current;
+      setTimeout(() => {
+        el.scrollTop = el.scrollHeight;
+      }, 80);
+    }
+  }, [commentPanelOpen, realComments.length]);
 
   // ─── Creator info ────────────────────────────────────────────────────────
   const { data: creatorUser } = useQuery({
@@ -471,6 +571,13 @@ export function VideoCard({
       await actor.addComment(video.id, text, replyToId);
       await queryClient.invalidateQueries({ queryKey: commentsQueryKey });
       await queryClient.invalidateQueries({ queryKey: interactionQueryKey });
+      // Scroll to bottom after posting
+      setTimeout(() => {
+        if (commentScrollRef.current) {
+          commentScrollRef.current.scrollTop =
+            commentScrollRef.current.scrollHeight;
+        }
+      }, 150);
     } catch {
       toast.error("Failed to post comment");
     }
@@ -519,6 +626,43 @@ export function VideoCard({
     setReplyingTo({ id: comment.id, username: authorUsername });
     setCommentText(`@${authorUsername} `);
     setTimeout(() => commentInputRef.current?.focus(), 80);
+  };
+
+  const handleSendGift = (gift: (typeof GIFTS)[number]) => {
+    if (!isAuthenticated) {
+      toast.error("Log in to send gifts");
+      return;
+    }
+    const coins = userProfile
+      ? ((userProfile as { coinBalance?: number }).coinBalance ?? 0)
+      : 0;
+    if (coins < gift.coins) {
+      toast.error("Not enough coins. Recharge to continue.");
+      return;
+    }
+    toast.success(`${gift.emoji} Gift sent!`);
+    setGiftPanelOpen(false);
+  };
+
+  const handleSendSticker = async (sticker: string) => {
+    if (!isAuthenticated || !actor) {
+      toast.error("Log in to send stickers");
+      return;
+    }
+    setStickerPanelOpen(false);
+    try {
+      await actor.addComment(video.id, sticker, null);
+      await queryClient.invalidateQueries({ queryKey: commentsQueryKey });
+      await queryClient.invalidateQueries({ queryKey: interactionQueryKey });
+      setTimeout(() => {
+        if (commentScrollRef.current) {
+          commentScrollRef.current.scrollTop =
+            commentScrollRef.current.scrollHeight;
+        }
+      }, 150);
+    } catch {
+      toast.error("Failed to send sticker");
+    }
   };
 
   const handleCopyLink = async () => {
@@ -860,6 +1004,11 @@ export function VideoCard({
           data-ocid="video.gift_button"
           className="flex flex-col items-center gap-1 group"
           aria-label="Gift"
+          onClick={(e) => {
+            e.stopPropagation();
+            setCommentPanelOpen(true);
+            setGiftPanelOpen(true);
+          }}
         >
           <div className="w-11 h-11 flex items-center justify-center">
             <Sparkles
@@ -964,42 +1113,92 @@ export function VideoCard({
             {/* biome-ignore lint/a11y/useKeyWithClickEvents: backdrop dismiss */}
             <div
               className="fixed inset-0 z-[190]"
-              style={{ background: "rgba(0,0,0,0.5)" }}
+              style={{
+                background: "rgba(0,0,0,0.6)",
+                backdropFilter: "blur(4px)",
+                WebkitBackdropFilter: "blur(4px)",
+              }}
               onClick={(e) => {
                 e.stopPropagation();
                 setCommentPanelOpen(false);
+                setGiftPanelOpen(false);
+                setEmojiPickerOpen(false);
+                setStickerPanelOpen(false);
               }}
             />
             <motion.div
+              data-ocid="video.comment_panel"
               initial={{ y: "100%" }}
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
-              transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-              className="fixed bottom-0 left-0 right-0 z-[200] rounded-t-2xl flex flex-col"
+              transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+              className="fixed bottom-0 left-0 right-0 z-[200] rounded-t-3xl flex flex-col"
+              onTouchStart={(e) => {
+                // Only initiate swipe from the drag handle / header area
+                const target = e.target as HTMLElement;
+                if (target.closest("[data-drag-handle]")) {
+                  swipeStartY.current = e.touches[0]?.clientY ?? null;
+                }
+              }}
+              onTouchMove={(e) => {
+                if (swipeStartY.current === null) return;
+                const currentY = e.touches[0]?.clientY ?? 0;
+                const delta = currentY - swipeStartY.current;
+                if (delta > 0) {
+                  panelY.set(delta);
+                }
+              }}
+              onTouchEnd={(e) => {
+                if (swipeStartY.current === null) return;
+                const currentY = e.changedTouches[0]?.clientY ?? 0;
+                const delta = currentY - swipeStartY.current;
+                swipeStartY.current = null;
+                if (delta > 80) {
+                  panelY.set(0);
+                  setCommentPanelOpen(false);
+                  setGiftPanelOpen(false);
+                  setEmojiPickerOpen(false);
+                  setStickerPanelOpen(false);
+                } else {
+                  panelY.set(0);
+                }
+              }}
               style={{
-                background: "rgba(14,14,14,0.98)",
+                background: "rgba(10,10,10,0.97)",
                 backdropFilter: "blur(20px)",
                 WebkitBackdropFilter: "blur(20px)",
                 border: "1px solid rgba(255,255,255,0.08)",
-                height: "50vh",
+                borderBottom: "none",
+                height: "85vh",
+                y: panelY,
+                opacity: panelOpacity,
               }}
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Handle */}
-              <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
+              {/* Drag handle — initiates swipe-to-close */}
+              <div
+                data-drag-handle
+                className="flex justify-center pt-3 pb-1 flex-shrink-0 cursor-grab active:cursor-grabbing touch-none"
+              >
                 <div
-                  className="w-10 h-1 rounded-full"
-                  style={{ background: "rgba(255,255,255,0.2)" }}
+                  className="w-12 h-1.5 rounded-full"
+                  style={{ background: "rgba(255,255,255,0.25)" }}
                 />
               </div>
 
               {/* Header */}
-              <div className="flex items-center justify-between px-4 py-3 flex-shrink-0">
+              <div
+                data-drag-handle
+                className="flex items-center justify-between px-5 py-3 flex-shrink-0"
+              >
                 <h3
                   className="text-white font-bold text-base"
                   style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}
                 >
-                  Comments
+                  Comments{" "}
+                  <span className="text-white/40 font-normal text-sm">
+                    {realComments.length > 0 ? realComments.length : ""}
+                  </span>
                 </h3>
                 <button
                   type="button"
@@ -1007,6 +1206,9 @@ export function VideoCard({
                   onClick={(e) => {
                     e.stopPropagation();
                     setCommentPanelOpen(false);
+                    setGiftPanelOpen(false);
+                    setEmojiPickerOpen(false);
+                    setStickerPanelOpen(false);
                   }}
                   className="w-8 h-8 rounded-full flex items-center justify-center text-white/50 hover:text-white transition-colors"
                   style={{ background: "rgba(255,255,255,0.07)" }}
@@ -1016,10 +1218,16 @@ export function VideoCard({
                 </button>
               </div>
 
-              {/* Comments list */}
+              {/* Comments list — newest at bottom, oldest at top */}
+              {/* biome-ignore lint/a11y/useKeyWithClickEvents: stopPropagation wrapper only */}
               <div
-                className="flex-1 overflow-y-auto px-4 pb-2"
-                style={{ scrollbarWidth: "none" }}
+                ref={commentScrollRef}
+                className="flex-1 overflow-y-auto px-5 pb-2"
+                style={{
+                  scrollbarWidth: "none",
+                  overscrollBehavior: "contain",
+                }}
+                onClick={(e) => e.stopPropagation()}
               >
                 {commentsLoading ? (
                   <div
@@ -1035,30 +1243,196 @@ export function VideoCard({
                 ) : realComments.length === 0 ? (
                   <div
                     data-ocid="video.comments_empty_state"
-                    className="flex flex-col items-center justify-center py-12 gap-3"
+                    className="flex flex-col items-center justify-center py-16 gap-3"
                   >
-                    <MessageCircle size={36} className="text-white/20" />
+                    <MessageCircle size={40} className="text-white/15" />
                     <p className="text-white/40 text-sm text-center">
-                      No comments yet. Be the first!
+                      No comments yet.{"\n"}Be the first to say something!
                     </p>
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    {realComments.map((comment, idx) => (
-                      <CommentItem
-                        key={comment.id.toString()}
-                        comment={comment}
-                        idx={idx}
-                        scope="video"
-                        isLiked={likedCommentIds.has(comment.id.toString())}
-                        onLike={() => void handleLikeComment(comment)}
-                        onReply={(username) => handleReply(comment, username)}
-                        onNavigateToProfile={onNavigateToProfile}
-                      />
-                    ))}
+                  <div className="flex flex-col gap-5 pt-2 pb-4">
+                    {/* Oldest first so newest appear at bottom */}
+                    {[...realComments]
+                      .sort((a, b) => Number(a.createdAt - b.createdAt))
+                      .map((comment, idx) => (
+                        <CommentItem
+                          key={comment.id.toString()}
+                          comment={comment}
+                          idx={idx}
+                          scope="video"
+                          isLiked={likedCommentIds.has(comment.id.toString())}
+                          onLike={() => void handleLikeComment(comment)}
+                          onReply={(username) => handleReply(comment, username)}
+                          onNavigateToProfile={onNavigateToProfile}
+                        />
+                      ))}
                   </div>
                 )}
               </div>
+
+              {/* Gift panel sub-sheet */}
+              <AnimatePresence>
+                {giftPanelOpen && (
+                  <motion.div
+                    data-ocid="video.gift_panel"
+                    initial={{ y: "100%" }}
+                    animate={{ y: 0 }}
+                    exit={{ y: "100%" }}
+                    transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                    className="absolute bottom-0 left-0 right-0 rounded-t-3xl flex flex-col z-10"
+                    style={{
+                      background: "rgba(18,18,18,0.99)",
+                      backdropFilter: "blur(24px)",
+                      WebkitBackdropFilter: "blur(24px)",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      borderBottom: "none",
+                      maxHeight: "70%",
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {/* Gift panel header */}
+                    <div className="flex items-center justify-between px-5 pt-4 pb-3 flex-shrink-0">
+                      <div className="flex items-center gap-2">
+                        <Gift size={16} style={{ color: "#ff0050" }} />
+                        <span
+                          className="text-white font-bold text-sm"
+                          style={{
+                            fontFamily: "'Bricolage Grotesque', sans-serif",
+                          }}
+                        >
+                          Send a Gift
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-white/40 text-xs">
+                          🪙{" "}
+                          {(userProfile as { coinBalance?: number })
+                            ?.coinBalance ?? 0}{" "}
+                          coins
+                        </span>
+                        <button
+                          type="button"
+                          data-ocid="video.gift_panel_close_button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setGiftPanelOpen(false);
+                          }}
+                          className="w-7 h-7 rounded-full flex items-center justify-center"
+                          style={{ background: "rgba(255,255,255,0.07)" }}
+                          aria-label="Close gifts"
+                        >
+                          <X size={14} className="text-white/60" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Gift grid */}
+                    <div
+                      className="overflow-y-auto px-4 pb-6"
+                      style={{ scrollbarWidth: "none" }}
+                    >
+                      <div className="grid grid-cols-4 gap-3">
+                        {GIFTS.map((gift) => (
+                          <button
+                            key={gift.id}
+                            type="button"
+                            data-ocid={`video.gift.${gift.id}_button`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSendGift(gift);
+                            }}
+                            className="flex flex-col items-center gap-1.5 py-3 rounded-2xl transition-all active:scale-95"
+                            style={{
+                              background: "rgba(255,255,255,0.05)",
+                              border: "1px solid rgba(255,255,255,0.08)",
+                            }}
+                          >
+                            <span className="text-2xl">{gift.emoji}</span>
+                            <span className="text-white/80 text-[10px] font-medium truncate w-full text-center">
+                              {gift.name}
+                            </span>
+                            <span
+                              className="text-[10px] font-bold"
+                              style={{ color: "#ff0050" }}
+                            >
+                              🪙 {gift.coins}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Emoji picker sub-panel */}
+              <AnimatePresence>
+                {emojiPickerOpen && !giftPanelOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 10 }}
+                    transition={{ duration: 0.2 }}
+                    className="px-4 pt-3 pb-2 flex-shrink-0"
+                    style={{ borderTop: "1px solid rgba(255,255,255,0.07)" }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="grid grid-cols-10 gap-1">
+                      {EMOJIS.map((emoji) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          className="text-xl leading-none py-1 rounded-lg transition-all active:scale-90 hover:bg-white/10"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCommentText((prev) => prev + emoji);
+                            commentInputRef.current?.focus();
+                          }}
+                          aria-label={`Insert ${emoji}`}
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Sticker panel sub-panel */}
+              <AnimatePresence>
+                {stickerPanelOpen && !giftPanelOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 10 }}
+                    transition={{ duration: 0.2 }}
+                    className="px-4 pt-3 pb-2 flex-shrink-0"
+                    style={{ borderTop: "1px solid rgba(255,255,255,0.07)" }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <p className="text-white/40 text-[10px] mb-2 uppercase tracking-wider font-semibold">
+                      Stickers
+                    </p>
+                    <div className="grid grid-cols-6 gap-2">
+                      {STICKERS.map((sticker) => (
+                        <button
+                          key={sticker}
+                          type="button"
+                          className="text-3xl leading-none py-2 rounded-xl transition-all active:scale-90 hover:bg-white/10"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleSendSticker(sticker);
+                          }}
+                          aria-label={`Send sticker ${sticker}`}
+                        >
+                          {sticker}
+                        </button>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               {/* Reply chip */}
               <AnimatePresence>
@@ -1067,7 +1441,7 @@ export function VideoCard({
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: "auto" }}
                     exit={{ opacity: 0, height: 0 }}
-                    className="flex items-center gap-2 px-4 py-2 flex-shrink-0"
+                    className="flex items-center gap-2 px-5 py-2 flex-shrink-0"
                     style={{
                       background: "rgba(255,0,80,0.08)",
                       borderTop: "1px solid rgba(255,0,80,0.15)",
@@ -1099,16 +1473,106 @@ export function VideoCard({
                 )}
               </AnimatePresence>
 
+              {/* Gift row — above input bar */}
+              {/* biome-ignore lint/a11y/useKeyWithClickEvents: stopPropagation wrapper only */}
+              <div
+                className="flex items-center gap-2 px-5 py-2 flex-shrink-0"
+                style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  data-ocid="video.comment_gift_button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setGiftPanelOpen((prev) => !prev);
+                    setEmojiPickerOpen(false);
+                    setStickerPanelOpen(false);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all active:scale-95"
+                  style={{
+                    background: giftPanelOpen
+                      ? "rgba(255,0,80,0.2)"
+                      : "rgba(255,255,255,0.07)",
+                    border: `1px solid ${giftPanelOpen ? "rgba(255,0,80,0.4)" : "rgba(255,255,255,0.1)"}`,
+                    color: giftPanelOpen ? "#ff0050" : "rgba(255,255,255,0.7)",
+                  }}
+                  aria-label="Send a gift"
+                >
+                  <Gift size={13} />
+                  Gift
+                </button>
+              </div>
+
               {/* Input bar */}
               {/* biome-ignore lint/a11y/useKeyWithClickEvents: stopPropagation wrapper only */}
               <div
                 className="flex items-center gap-2 px-4 py-3 flex-shrink-0"
                 style={{
                   borderTop: "1px solid rgba(255,255,255,0.07)",
-                  background: "rgba(0,0,0,0.4)",
+                  background: "rgba(0,0,0,0.5)",
+                  paddingBottom:
+                    "calc(0.75rem + env(safe-area-inset-bottom, 0px))",
                 }}
                 onClick={(e) => e.stopPropagation()}
               >
+                {/* Emoji button */}
+                <button
+                  type="button"
+                  data-ocid="video.comment_emoji_button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEmojiPickerOpen((prev) => !prev);
+                    setStickerPanelOpen(false);
+                    setGiftPanelOpen(false);
+                  }}
+                  className="w-9 h-9 flex items-center justify-center rounded-full flex-shrink-0 transition-all active:scale-90"
+                  style={{
+                    background: emojiPickerOpen
+                      ? "rgba(255,0,80,0.15)"
+                      : "rgba(255,255,255,0.07)",
+                  }}
+                  aria-label="Emoji picker"
+                >
+                  <Smile
+                    size={18}
+                    style={{
+                      color: emojiPickerOpen
+                        ? "#ff0050"
+                        : "rgba(255,255,255,0.6)",
+                    }}
+                  />
+                </button>
+
+                {/* Sticker button */}
+                <button
+                  type="button"
+                  data-ocid="video.comment_sticker_button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setStickerPanelOpen((prev) => !prev);
+                    setEmojiPickerOpen(false);
+                    setGiftPanelOpen(false);
+                  }}
+                  className="w-9 h-9 flex items-center justify-center rounded-full flex-shrink-0 transition-all active:scale-90"
+                  style={{
+                    background: stickerPanelOpen
+                      ? "rgba(255,0,80,0.15)"
+                      : "rgba(255,255,255,0.07)",
+                  }}
+                  aria-label="Sticker picker"
+                >
+                  <Star
+                    size={18}
+                    style={{
+                      color: stickerPanelOpen
+                        ? "#ff0050"
+                        : "rgba(255,255,255,0.6)",
+                    }}
+                  />
+                </button>
+
+                {/* Text input */}
                 <input
                   ref={commentInputRef}
                   type="text"
@@ -1118,12 +1582,16 @@ export function VideoCard({
                   onKeyDown={(e) => {
                     if (e.key === "Enter") void handleSendComment();
                   }}
+                  onFocus={() => {
+                    setEmojiPickerOpen(false);
+                    setStickerPanelOpen(false);
+                  }}
                   placeholder={
                     replyingTo
                       ? `Reply to @${replyingTo.username}…`
                       : "Add a comment…"
                   }
-                  className="flex-1 px-3 py-2 rounded-full text-white text-sm placeholder:text-white/30 outline-none"
+                  className="flex-1 px-4 py-2.5 rounded-full text-white text-sm placeholder:text-white/30 outline-none"
                   style={{
                     background: "rgba(255,255,255,0.08)",
                     border: "1px solid rgba(255,255,255,0.1)",
@@ -1131,6 +1599,8 @@ export function VideoCard({
                     fontSize: "16px",
                   }}
                 />
+
+                {/* Send button */}
                 <button
                   type="button"
                   data-ocid="video.comment_submit_button"
@@ -1139,11 +1609,14 @@ export function VideoCard({
                     void handleSendComment();
                   }}
                   disabled={!commentText.trim()}
-                  className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 disabled:opacity-40 transition-opacity"
+                  className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 disabled:opacity-35 transition-all active:scale-90"
                   style={{
                     background: commentText.trim()
                       ? "linear-gradient(135deg, #ff0050 0%, #ff3366 100%)"
-                      : "rgba(255,255,255,0.1)",
+                      : "rgba(255,255,255,0.08)",
+                    boxShadow: commentText.trim()
+                      ? "0 2px 12px rgba(255,0,80,0.4)"
+                      : "none",
                   }}
                   aria-label="Send comment"
                 >

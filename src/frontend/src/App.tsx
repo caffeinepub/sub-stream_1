@@ -153,6 +153,7 @@ function AppShell() {
   const { unreadCount } = useNotifications();
   const [screen, setScreen] = useState<Screen>("feed");
   const [feedTab, setFeedTab] = useState<TopNavTab>("For You");
+  const [commentPanelOpen, setCommentPanelOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedStream, setSelectedStream] = useState<LiveStream | null>(null);
   const [isHostStream, setIsHostStream] = useState(false);
@@ -664,6 +665,7 @@ function AppShell() {
               }}
               onJoinLiveStream={handleJoinLiveFromProfile}
               feedTab={feedTab}
+              onCommentPanelChange={setCommentPanelOpen}
             />
             <TopNav
               onNavigate={(tab) => {
@@ -682,11 +684,13 @@ function AppShell() {
               onNotifications={() => setScreen("notifications")}
               notificationCount={unreadCount}
             />
-            <BottomNav
-              activeScreen={bottomActive}
-              onOpenCreate={() => setCreateOpen(true)}
-              onNavigate={handleBottomNav}
-            />
+            {!commentPanelOpen && (
+              <BottomNav
+                activeScreen={bottomActive}
+                onOpenCreate={() => setCreateOpen(true)}
+                onNavigate={handleBottomNav}
+              />
+            )}
             <CreateMenu
               open={createOpen}
               onClose={() => setCreateOpen(false)}
