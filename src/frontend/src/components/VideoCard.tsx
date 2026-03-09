@@ -981,7 +981,7 @@ export function VideoCard({
                 backdropFilter: "blur(20px)",
                 WebkitBackdropFilter: "blur(20px)",
                 border: "1px solid rgba(255,255,255,0.08)",
-                maxHeight: "70vh",
+                height: "50vh",
               }}
               onClick={(e) => e.stopPropagation()}
             >
