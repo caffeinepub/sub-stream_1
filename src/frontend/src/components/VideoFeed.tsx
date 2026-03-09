@@ -221,7 +221,7 @@ export function VideoFeed({
       return actor.getAllVideos();
     },
     enabled: !!actor,
-    staleTime: 60_000,
+    staleTime: 0,
   });
 
   // Following principals for the following feed

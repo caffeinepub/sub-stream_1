@@ -33,13 +33,16 @@ interface BottomNavProps {
   onOpenCreate?: () => void;
   activeScreen?: BottomNavScreen;
   onNavigate?: (screen: BottomNavScreen) => void;
+  hidden?: boolean;
 }
 
 export function BottomNav({
   onOpenCreate,
   activeScreen = "feed",
   onNavigate,
+  hidden,
 }: BottomNavProps) {
+  if (hidden) return null;
   return (
     <nav
       data-ocid="bottomnav.panel"

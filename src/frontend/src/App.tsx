@@ -153,7 +153,7 @@ function AppShell() {
   const { unreadCount } = useNotifications();
   const [screen, setScreen] = useState<Screen>("feed");
   const [feedTab, setFeedTab] = useState<TopNavTab>("For You");
-  const [commentPanelOpen, setCommentPanelOpen] = useState(false);
+  const [, setCommentPanelOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedStream, setSelectedStream] = useState<LiveStream | null>(null);
   const [isHostStream, setIsHostStream] = useState(false);
@@ -545,6 +545,7 @@ function AppShell() {
               activeScreen="profile"
               onOpenCreate={() => setCreateOpen(true)}
               onNavigate={handleBottomNav}
+              hidden={false}
             />
           </motion.div>
         )}
@@ -603,6 +604,7 @@ function AppShell() {
               activeScreen="friends"
               onOpenCreate={() => setCreateOpen(true)}
               onNavigate={handleBottomNav}
+              hidden={false}
             />
           </motion.div>
         )}
@@ -622,6 +624,7 @@ function AppShell() {
               activeScreen="inbox"
               onOpenCreate={() => setCreateOpen(true)}
               onNavigate={handleBottomNav}
+              hidden={false}
             />
           </motion.div>
         )}
@@ -684,13 +687,12 @@ function AppShell() {
               onNotifications={() => setScreen("notifications")}
               notificationCount={unreadCount}
             />
-            {!commentPanelOpen && (
-              <BottomNav
-                activeScreen={bottomActive}
-                onOpenCreate={() => setCreateOpen(true)}
-                onNavigate={handleBottomNav}
-              />
-            )}
+            <BottomNav
+              activeScreen={bottomActive}
+              onOpenCreate={() => setCreateOpen(true)}
+              onNavigate={handleBottomNav}
+              hidden={false}
+            />
             <CreateMenu
               open={createOpen}
               onClose={() => setCreateOpen(false)}
@@ -728,6 +730,7 @@ function AppShell() {
               activeScreen={bottomActive}
               onOpenCreate={() => setCreateOpen(true)}
               onNavigate={handleBottomNav}
+              hidden={false}
             />
             <CreateMenu
               open={createOpen}

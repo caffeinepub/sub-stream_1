@@ -20,6 +20,8 @@ import type { Comment } from "../backend.d";
 import { useAuth } from "../context/AuthContext";
 import { getDisplayName, getUsername } from "../lib/userFormat";
 
+const NAV_HEIGHT = 80;
+
 // ─── Gift catalog ─────────────────────────────────────────────────────────────
 const GIFTS = [
   { id: "rose", emoji: "🌹", name: "Rose", coins: 1 },
@@ -259,6 +261,8 @@ interface CommentPanelProps {
   onClose: () => void;
   isAuthenticated: boolean;
   onNavigateToProfile?: (principal: string) => void;
+  /** When true, automatically opens the gift sub-panel when the panel becomes visible */
+  openGift?: boolean;
 }
 
 // ─── CommentPanel ─────────────────────────────────────────────────────────────
@@ -269,6 +273,7 @@ export function CommentPanel({
   onClose,
   isAuthenticated,
   onNavigateToProfile,
+  openGift = false,
 }: CommentPanelProps) {
   const { actor, userProfile } = useAuth();
   const queryClient = useQueryClient();
@@ -284,8 +289,8 @@ export function CommentPanel({
   );
   const [giftPanelOpen, setGiftPanelOpen] = useState(false);
   const [emojiTabOpen, setEmojiTabOpen] = useState(false);
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
   const [emojiTab, setEmojiTab] = useState<"emoji" | "stickers">("emoji");
-
   const [expandedThreads, setExpandedThreads] = useState<Set<string>>(
     new Set(),
   );
@@ -362,6 +367,29 @@ export function CommentPanel({
       setCommentText("");
     }
   }, [isOpen]);
+
+  // Auto-open gift panel when triggered from the teaser bar
+  useEffect(() => {
+    if (isOpen && openGift) {
+      setGiftPanelOpen(true);
+    }
+  }, [isOpen, openGift]);
+
+  // ── Keyboard offset (grows the panel when keyboard opens) ─────────────────
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const handler = () => {
+      const offset = window.innerHeight - vv.height - vv.offsetTop;
+      setKeyboardOffset(Math.max(0, offset));
+    };
+    vv.addEventListener("resize", handler);
+    vv.addEventListener("scroll", handler);
+    return () => {
+      vv.removeEventListener("resize", handler);
+      vv.removeEventListener("scroll", handler);
+    };
+  }, []);
 
   // ── Swipe-to-close handlers ────────────────────────────────────────────────
   const handleDragStart = useCallback((clientY: number) => {
@@ -545,11 +573,12 @@ export function CommentPanel({
     <AnimatePresence>
       {isOpen && (
         <>
-          {/* Backdrop */}
+          {/* Backdrop — full screen minus nav area */}
           {/* biome-ignore lint/a11y/useKeyWithClickEvents: backdrop dismiss */}
           <div
-            className="fixed inset-0 z-[499]"
+            className="fixed inset-0 z-[199]"
             style={{
+              bottom: NAV_HEIGHT,
               background: "rgba(0,0,0,0.6)",
               backdropFilter: "blur(4px)",
               WebkitBackdropFilter: "blur(4px)",
@@ -560,521 +589,540 @@ export function CommentPanel({
             }}
           />
 
-          {/* Panel */}
-          <motion.div
-            data-ocid="comment.panel"
-            initial={{ y: "100%" }}
-            animate={{ y: 0 }}
-            exit={{ y: "100%" }}
-            transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
-            className="fixed bottom-0 left-0 right-0 z-[500] rounded-t-3xl flex flex-col"
-            onTouchStart={(e) => {
-              const target = e.target as HTMLElement;
-              if (target.closest("[data-drag-handle]")) {
-                handleDragStart(e.touches[0]?.clientY ?? 0);
-              }
-            }}
-            onTouchMove={(e) => {
-              handleDragMove(e.touches[0]?.clientY ?? 0);
-            }}
-            onTouchEnd={(e) => {
-              handleDragEnd(e.changedTouches[0]?.clientY ?? 0);
-            }}
-            style={{
-              background: "rgba(10,10,10,0.97)",
-              backdropFilter: "blur(20px)",
-              WebkitBackdropFilter: "blur(20px)",
-              border: "1px solid rgba(255,255,255,0.08)",
-              borderBottom: "none",
-              height: "85vh",
-              y: panelY,
-              opacity: panelOpacity,
-            }}
-            onClick={(e) => e.stopPropagation()}
+          {/* Outer wrapper: fixed full viewport, flex column, reserves nav space via paddingBottom */}
+          <div
+            className="fixed inset-0 z-[200] flex flex-col justify-end pointer-events-none"
+            style={{ paddingBottom: NAV_HEIGHT }}
           >
-            {/* Drag handle */}
-            <div
-              data-drag-handle
-              className="flex justify-center pt-3 pb-1 flex-shrink-0 cursor-grab active:cursor-grabbing touch-none"
-            >
-              <div
-                className="w-12 h-1.5 rounded-full"
-                style={{ background: "rgba(255,255,255,0.25)" }}
-              />
-            </div>
-
-            {/* Header */}
-            <div
-              data-drag-handle
-              className="flex items-center justify-between px-5 py-3 flex-shrink-0"
-            >
-              <h3
-                className="text-white font-bold text-base"
-                style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}
-              >
-                Comments{" "}
-                <span className="text-white/40 font-normal text-sm">
-                  {allComments.length > 0 ? allComments.length : ""}
-                </span>
-              </h3>
-              <button
-                type="button"
-                data-ocid="comment.close_button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onClose();
-                }}
-                className="w-8 h-8 rounded-full flex items-center justify-center text-white/50 hover:text-white transition-colors active:scale-90"
-                style={{ background: "rgba(255,255,255,0.07)" }}
-                aria-label="Close comments"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            {/* Comments list */}
-            {/* biome-ignore lint/a11y/useKeyWithClickEvents: stopPropagation wrapper */}
-            <div
-              ref={commentScrollRef}
-              className="flex-1 overflow-y-auto px-5 pb-2"
-              style={{ scrollbarWidth: "none", overscrollBehavior: "contain" }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              {commentsLoading ? (
-                <div
-                  data-ocid="comment.loading_state"
-                  className="flex flex-col items-center justify-center py-12 gap-3"
-                >
-                  <div
-                    className="w-8 h-8 rounded-full animate-pulse"
-                    style={{ background: "rgba(255,0,80,0.3)" }}
-                  />
-                  <p className="text-white/40 text-sm">Loading comments…</p>
-                </div>
-              ) : topLevelComments.length === 0 ? (
-                <div
-                  data-ocid="comment.empty_state"
-                  className="flex flex-col items-center justify-center py-16 gap-3"
-                >
-                  <MessageCircle size={40} className="text-white/15" />
-                  <p className="text-white/40 text-sm text-center">
-                    No comments yet.{"\n"}Be the first to say something!
-                  </p>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-5 pt-2 pb-4">
-                  {topLevelComments.map((comment, idx) => {
-                    const replies =
-                      repliesByParent.get(comment.id.toString()) ?? [];
-                    const isExpanded = expandedThreads.has(
-                      comment.id.toString(),
-                    );
-
-                    return (
-                      <div key={comment.id.toString()}>
-                        <CommentItem
-                          comment={comment}
-                          idx={idx}
-                          scope="comment"
-                          isLiked={likedCommentIds.has(comment.id.toString())}
-                          onLike={() => void handleLikeComment(comment)}
-                          onReply={(username) => handleReply(comment, username)}
-                          onNavigateToProfile={onNavigateToProfile}
-                        />
-
-                        {/* Replies */}
-                        {replies.length > 0 && (
-                          <div className="ml-9 mt-2">
-                            <button
-                              type="button"
-                              data-ocid={`comment.reply.toggle.${idx + 1}`}
-                              onClick={() =>
-                                toggleThread(comment.id.toString())
-                              }
-                              className="flex items-center gap-1.5 mb-2 transition-colors"
-                            >
-                              <div
-                                className="w-4 h-px"
-                                style={{ background: "rgba(255,255,255,0.2)" }}
-                              />
-                              <span
-                                className="text-[11px] font-semibold"
-                                style={{
-                                  color: isExpanded
-                                    ? "#ff0050"
-                                    : "rgba(255,255,255,0.4)",
-                                }}
-                              >
-                                {isExpanded ? "Hide" : `View ${replies.length}`}{" "}
-                                {replies.length === 1 ? "reply" : "replies"}
-                              </span>
-                            </button>
-
-                            <AnimatePresence>
-                              {isExpanded && (
-                                <motion.div
-                                  initial={{ opacity: 0, height: 0 }}
-                                  animate={{ opacity: 1, height: "auto" }}
-                                  exit={{ opacity: 0, height: 0 }}
-                                  transition={{ duration: 0.2 }}
-                                  className="flex flex-col gap-4 border-l-2 pl-3"
-                                  style={{
-                                    borderColor: "rgba(255,255,255,0.1)",
-                                  }}
-                                >
-                                  {replies.map((reply, rIdx) => (
-                                    <CommentItem
-                                      key={reply.id.toString()}
-                                      comment={reply}
-                                      idx={rIdx}
-                                      scope="comment.reply"
-                                      isLiked={likedCommentIds.has(
-                                        reply.id.toString(),
-                                      )}
-                                      onLike={() =>
-                                        void handleLikeComment(reply)
-                                      }
-                                      onReply={(username) =>
-                                        handleReply(reply, username)
-                                      }
-                                      onNavigateToProfile={onNavigateToProfile}
-                                    />
-                                  ))}
-                                </motion.div>
-                              )}
-                            </AnimatePresence>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* ── Gift sub-panel ───────────────────────────────────────────── */}
-            <AnimatePresence>
-              {giftPanelOpen && (
-                <motion.div
-                  data-ocid="comment.gift.panel"
-                  initial={{ y: "100%" }}
-                  animate={{ y: 0 }}
-                  exit={{ y: "100%" }}
-                  transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-                  className="absolute bottom-0 left-0 right-0 rounded-t-3xl flex flex-col z-10"
-                  style={{
-                    background: "rgba(18,18,18,0.99)",
-                    backdropFilter: "blur(24px)",
-                    WebkitBackdropFilter: "blur(24px)",
-                    border: "1px solid rgba(255,255,255,0.1)",
-                    borderBottom: "none",
-                    maxHeight: "70%",
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="flex items-center justify-between px-5 pt-4 pb-3 flex-shrink-0">
-                    <div className="flex items-center gap-2">
-                      <Gift size={16} style={{ color: "#ff0050" }} />
-                      <span
-                        className="text-white font-bold text-sm"
-                        style={{
-                          fontFamily: "'Bricolage Grotesque', sans-serif",
-                        }}
-                      >
-                        Send a Gift
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-white/40 text-xs">
-                        🪙{" "}
-                        {(userProfile as { coinBalance?: number })
-                          ?.coinBalance ?? 0}{" "}
-                        coins
-                      </span>
-                      <button
-                        type="button"
-                        data-ocid="comment.gift.close_button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setGiftPanelOpen(false);
-                        }}
-                        className="w-7 h-7 rounded-full flex items-center justify-center active:scale-90 transition-transform"
-                        style={{ background: "rgba(255,255,255,0.07)" }}
-                        aria-label="Close gifts"
-                      >
-                        <X size={14} className="text-white/60" />
-                      </button>
-                    </div>
-                  </div>
-                  <div
-                    className="overflow-y-auto px-4 pb-6"
-                    style={{ scrollbarWidth: "none" }}
-                  >
-                    <div className="grid grid-cols-4 gap-3">
-                      {GIFTS.map((gift) => (
-                        <button
-                          key={gift.id}
-                          type="button"
-                          data-ocid={`comment.gift.${gift.id}_button`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleSendGift(gift);
-                          }}
-                          className="flex flex-col items-center gap-1.5 py-3 rounded-2xl transition-all active:scale-95"
-                          style={{
-                            background: "rgba(255,255,255,0.05)",
-                            border: "1px solid rgba(255,255,255,0.08)",
-                          }}
-                        >
-                          <span className="text-2xl">{gift.emoji}</span>
-                          <span className="text-white/80 text-[10px] font-medium truncate w-full text-center">
-                            {gift.name}
-                          </span>
-                          <span
-                            className="text-[10px] font-bold"
-                            style={{ color: "#ff0050" }}
-                          >
-                            🪙 {gift.coins}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* ── Emoji / Sticker panel ──────────────────────────────────── */}
-            <AnimatePresence>
-              {emojiTabOpen && !giftPanelOpen && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 10 }}
-                  transition={{ duration: 0.2 }}
-                  className="flex-shrink-0"
-                  style={{ borderTop: "1px solid rgba(255,255,255,0.07)" }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {/* Tab bar */}
-                  <div className="flex gap-2 px-4 pt-3 pb-2">
-                    {(["emoji", "stickers"] as const).map((tab) => (
-                      <button
-                        key={tab}
-                        type="button"
-                        onClick={() => setEmojiTab(tab)}
-                        className="px-3 py-1 rounded-full text-xs font-semibold transition-all active:scale-95"
-                        style={{
-                          background:
-                            emojiTab === tab
-                              ? "rgba(255,0,80,0.2)"
-                              : "rgba(255,255,255,0.07)",
-                          color:
-                            emojiTab === tab
-                              ? "#ff0050"
-                              : "rgba(255,255,255,0.5)",
-                          border:
-                            emojiTab === tab
-                              ? "1px solid rgba(255,0,80,0.3)"
-                              : "1px solid transparent",
-                        }}
-                      >
-                        {tab === "emoji" ? "Emoji" : "Stickers"}
-                      </button>
-                    ))}
-                  </div>
-
-                  {emojiTab === "emoji" ? (
-                    <div className="grid grid-cols-10 gap-1 px-4 pb-3">
-                      {EMOJIS.map((emoji) => (
-                        <button
-                          key={emoji}
-                          type="button"
-                          className="text-xl leading-none py-1 rounded-lg transition-all active:scale-90 hover:bg-white/10"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setCommentText((prev) => prev + emoji);
-                            commentInputRef.current?.focus();
-                          }}
-                          aria-label={`Insert ${emoji}`}
-                        >
-                          {emoji}
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-6 gap-2 px-4 pb-3">
-                      {STICKERS.map((sticker) => (
-                        <button
-                          key={sticker}
-                          type="button"
-                          className="text-3xl leading-none py-2 rounded-xl transition-all active:scale-90 hover:bg-white/10"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void handleSendSticker(sticker);
-                          }}
-                          aria-label={`Send sticker ${sticker}`}
-                        >
-                          {sticker}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* ── Reply chip ─────────────────────────────────────────────── */}
-            <AnimatePresence>
-              {replyingTo && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  exit={{ opacity: 0, height: 0 }}
-                  transition={{ duration: 0.2 }}
-                  className="flex items-center gap-2 px-5 py-2 flex-shrink-0"
-                  style={{
-                    background: "rgba(255,0,80,0.08)",
-                    borderTop: "1px solid rgba(255,0,80,0.15)",
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <CornerDownRight size={13} style={{ color: "#ff0050" }} />
-                  <span className="text-white/60 text-xs flex-1">
-                    Replying to{" "}
-                    <span style={{ color: "#ff0050" }}>
-                      @{replyingTo.username}
-                    </span>
-                  </span>
-                  <button
-                    type="button"
-                    data-ocid="comment.reply_to.close_button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setReplyingTo(null);
-                      setCommentText("");
-                    }}
-                    className="w-5 h-5 rounded-full flex items-center justify-center active:scale-90"
-                    style={{ background: "rgba(255,255,255,0.1)" }}
-                    aria-label="Cancel reply"
-                  >
-                    <X size={10} className="text-white/60" />
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* ── Input bar ─────────────────────────────────────────────── */}
-            {/* biome-ignore lint/a11y/useKeyWithClickEvents: stopPropagation wrapper */}
-            <div
-              className="flex items-center gap-2 px-4 py-3 flex-shrink-0"
+            {/* Panel: pointer-events restored, flex column, grows when keyboard opens */}
+            <motion.div
+              data-ocid="comment.panel"
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+              className="pointer-events-auto rounded-t-3xl flex flex-col overflow-hidden"
+              onTouchStart={(e) => {
+                const target = e.target as HTMLElement;
+                if (target.closest("[data-drag-handle]")) {
+                  handleDragStart(e.touches[0]?.clientY ?? 0);
+                }
+              }}
+              onTouchMove={(e) => {
+                handleDragMove(e.touches[0]?.clientY ?? 0);
+              }}
+              onTouchEnd={(e) => {
+                handleDragEnd(e.changedTouches[0]?.clientY ?? 0);
+              }}
               style={{
-                borderTop: "1px solid rgba(255,255,255,0.07)",
-                background: "rgba(0,0,0,0.5)",
-                paddingBottom:
-                  "calc(0.75rem + env(safe-area-inset-bottom, 0px))",
+                background: "rgba(10,10,10,0.97)",
+                backdropFilter: "blur(20px)",
+                WebkitBackdropFilter: "blur(20px)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                borderBottom: "none",
+                height: `calc(65vh + ${keyboardOffset}px)`,
+                y: panelY,
+                opacity: panelOpacity,
               }}
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Emoji toggle */}
-              <button
-                type="button"
-                data-ocid="comment.emoji_button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setEmojiTabOpen((prev) => !prev);
-                  setGiftPanelOpen(false);
-                }}
-                className="w-9 h-9 flex items-center justify-center rounded-full flex-shrink-0 transition-all active:scale-90"
-                style={{
-                  background: emojiTabOpen
-                    ? "rgba(255,0,80,0.15)"
-                    : "rgba(255,255,255,0.07)",
-                }}
-                aria-label="Emoji picker"
+              {/* Drag handle */}
+              <div
+                data-drag-handle
+                className="flex justify-center pt-3 pb-1 flex-shrink-0 cursor-grab active:cursor-grabbing touch-none"
               >
-                <Smile
-                  size={18}
+                <div
+                  className="w-12 h-1.5 rounded-full"
+                  style={{ background: "rgba(255,255,255,0.25)" }}
+                />
+              </div>
+
+              {/* Header */}
+              <div
+                data-drag-handle
+                className="flex items-center justify-between px-5 py-3 flex-shrink-0"
+              >
+                <h3
+                  className="text-white font-bold text-base"
+                  style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}
+                >
+                  Comments{" "}
+                  <span className="text-white/40 font-normal text-sm">
+                    {allComments.length > 0 ? allComments.length : ""}
+                  </span>
+                </h3>
+                <button
+                  type="button"
+                  data-ocid="comment.close_button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onClose();
+                  }}
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-white/50 hover:text-white transition-colors active:scale-90"
+                  style={{ background: "rgba(255,255,255,0.07)" }}
+                  aria-label="Close comments"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Comments list — flex-1, scrollable */}
+              {/* biome-ignore lint/a11y/useKeyWithClickEvents: stopPropagation wrapper */}
+              <div
+                ref={commentScrollRef}
+                className="flex-1 overflow-y-auto px-5 pb-2"
+                style={{
+                  scrollbarWidth: "none",
+                  overscrollBehavior: "contain",
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {commentsLoading ? (
+                  <div
+                    data-ocid="comment.loading_state"
+                    className="flex flex-col items-center justify-center py-12 gap-3"
+                  >
+                    <div
+                      className="w-8 h-8 rounded-full animate-pulse"
+                      style={{ background: "rgba(255,0,80,0.3)" }}
+                    />
+                    <p className="text-white/40 text-sm">Loading comments…</p>
+                  </div>
+                ) : topLevelComments.length === 0 ? (
+                  <div
+                    data-ocid="comment.empty_state"
+                    className="flex flex-col items-center justify-center py-16 gap-3"
+                  >
+                    <MessageCircle size={40} className="text-white/15" />
+                    <p className="text-white/40 text-sm text-center">
+                      ...be the first to comment... 😄🎁
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-5 pt-2 pb-4">
+                    {topLevelComments.map((comment, idx) => {
+                      const replies =
+                        repliesByParent.get(comment.id.toString()) ?? [];
+                      const isExpanded = expandedThreads.has(
+                        comment.id.toString(),
+                      );
+
+                      return (
+                        <div key={comment.id.toString()}>
+                          <CommentItem
+                            comment={comment}
+                            idx={idx}
+                            scope="comment"
+                            isLiked={likedCommentIds.has(comment.id.toString())}
+                            onLike={() => void handleLikeComment(comment)}
+                            onReply={(username) =>
+                              handleReply(comment, username)
+                            }
+                            onNavigateToProfile={onNavigateToProfile}
+                          />
+
+                          {/* Replies */}
+                          {replies.length > 0 && (
+                            <div className="ml-9 mt-2">
+                              <button
+                                type="button"
+                                data-ocid={`comment.reply.toggle.${idx + 1}`}
+                                onClick={() =>
+                                  toggleThread(comment.id.toString())
+                                }
+                                className="flex items-center gap-1.5 mb-2 transition-colors"
+                              >
+                                <div
+                                  className="w-4 h-px"
+                                  style={{
+                                    background: "rgba(255,255,255,0.2)",
+                                  }}
+                                />
+                                <span
+                                  className="text-[11px] font-semibold"
+                                  style={{
+                                    color: isExpanded
+                                      ? "#ff0050"
+                                      : "rgba(255,255,255,0.4)",
+                                  }}
+                                >
+                                  {isExpanded
+                                    ? "Hide"
+                                    : `View ${replies.length}`}{" "}
+                                  {replies.length === 1 ? "reply" : "replies"}
+                                </span>
+                              </button>
+
+                              <AnimatePresence>
+                                {isExpanded && (
+                                  <motion.div
+                                    initial={{ opacity: 0, height: 0 }}
+                                    animate={{ opacity: 1, height: "auto" }}
+                                    exit={{ opacity: 0, height: 0 }}
+                                    transition={{ duration: 0.2 }}
+                                    className="flex flex-col gap-4 border-l-2 pl-3"
+                                    style={{
+                                      borderColor: "rgba(255,255,255,0.1)",
+                                    }}
+                                  >
+                                    {replies.map((reply, rIdx) => (
+                                      <CommentItem
+                                        key={reply.id.toString()}
+                                        comment={reply}
+                                        idx={rIdx}
+                                        scope="comment.reply"
+                                        isLiked={likedCommentIds.has(
+                                          reply.id.toString(),
+                                        )}
+                                        onLike={() =>
+                                          void handleLikeComment(reply)
+                                        }
+                                        onReply={(username) =>
+                                          handleReply(reply, username)
+                                        }
+                                        onNavigateToProfile={
+                                          onNavigateToProfile
+                                        }
+                                      />
+                                    ))}
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* ── Gift sub-panel ───────────────────────────────────────────── */}
+              <AnimatePresence>
+                {giftPanelOpen && (
+                  <motion.div
+                    data-ocid="comment.gift.panel"
+                    initial={{ y: "100%" }}
+                    animate={{ y: 0 }}
+                    exit={{ y: "100%" }}
+                    transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                    className="absolute bottom-0 left-0 right-0 rounded-t-3xl flex flex-col z-10"
+                    style={{
+                      background: "rgba(18,18,18,0.99)",
+                      backdropFilter: "blur(24px)",
+                      WebkitBackdropFilter: "blur(24px)",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      borderBottom: "none",
+                      maxHeight: "70%",
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center justify-between px-5 pt-4 pb-3 flex-shrink-0">
+                      <div className="flex items-center gap-2">
+                        <Gift size={16} style={{ color: "#ff0050" }} />
+                        <span
+                          className="text-white font-bold text-sm"
+                          style={{
+                            fontFamily: "'Bricolage Grotesque', sans-serif",
+                          }}
+                        >
+                          Send a Gift
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-white/40 text-xs">
+                          🪙{" "}
+                          {(userProfile as { coinBalance?: number })
+                            ?.coinBalance ?? 0}{" "}
+                          coins
+                        </span>
+                        <button
+                          type="button"
+                          data-ocid="comment.gift.close_button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setGiftPanelOpen(false);
+                          }}
+                          className="w-7 h-7 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+                          style={{ background: "rgba(255,255,255,0.07)" }}
+                          aria-label="Close gifts"
+                        >
+                          <X size={14} className="text-white/60" />
+                        </button>
+                      </div>
+                    </div>
+                    <div
+                      className="overflow-y-auto px-4 pb-6"
+                      style={{ scrollbarWidth: "none" }}
+                    >
+                      <div className="grid grid-cols-4 gap-3">
+                        {GIFTS.map((gift) => (
+                          <button
+                            key={gift.id}
+                            type="button"
+                            data-ocid={`comment.gift.${gift.id}_button`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSendGift(gift);
+                            }}
+                            className="flex flex-col items-center gap-1.5 py-3 rounded-2xl transition-all active:scale-95"
+                            style={{
+                              background: "rgba(255,255,255,0.05)",
+                              border: "1px solid rgba(255,255,255,0.08)",
+                            }}
+                          >
+                            <span className="text-2xl">{gift.emoji}</span>
+                            <span className="text-white/80 text-[10px] font-medium truncate w-full text-center">
+                              {gift.name}
+                            </span>
+                            <span
+                              className="text-[10px] font-bold"
+                              style={{ color: "#ff0050" }}
+                            >
+                              🪙 {gift.coins}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* ── Emoji / Sticker panel ──────────────────────────────────── */}
+              <AnimatePresence>
+                {emojiTabOpen && !giftPanelOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 10 }}
+                    transition={{ duration: 0.2 }}
+                    className="flex-shrink-0"
+                    style={{ borderTop: "1px solid rgba(255,255,255,0.07)" }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {/* Tab bar */}
+                    <div className="flex gap-2 px-4 pt-3 pb-2">
+                      {(["emoji", "stickers"] as const).map((tab) => (
+                        <button
+                          key={tab}
+                          type="button"
+                          onClick={() => setEmojiTab(tab)}
+                          className="px-3 py-1 rounded-full text-xs font-semibold transition-all active:scale-95"
+                          style={{
+                            background:
+                              emojiTab === tab
+                                ? "rgba(255,0,80,0.2)"
+                                : "rgba(255,255,255,0.07)",
+                            color:
+                              emojiTab === tab
+                                ? "#ff0050"
+                                : "rgba(255,255,255,0.5)",
+                            border:
+                              emojiTab === tab
+                                ? "1px solid rgba(255,0,80,0.3)"
+                                : "1px solid transparent",
+                          }}
+                        >
+                          {tab === "emoji" ? "Emoji" : "Stickers"}
+                        </button>
+                      ))}
+                    </div>
+
+                    {emojiTab === "emoji" ? (
+                      <div className="grid grid-cols-10 gap-1 px-4 pb-3">
+                        {EMOJIS.map((emoji) => (
+                          <button
+                            key={emoji}
+                            type="button"
+                            className="text-xl leading-none py-1 rounded-lg transition-all active:scale-90 hover:bg-white/10"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setCommentText((prev) => prev + emoji);
+                              commentInputRef.current?.focus();
+                            }}
+                            aria-label={`Insert ${emoji}`}
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-6 gap-2 px-4 pb-3">
+                        {STICKERS.map((sticker) => (
+                          <button
+                            key={sticker}
+                            type="button"
+                            className="text-3xl leading-none py-2 rounded-xl transition-all active:scale-90 hover:bg-white/10"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleSendSticker(sticker);
+                            }}
+                            aria-label={`Send sticker ${sticker}`}
+                          >
+                            {sticker}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* ── Reply chip ─────────────────────────────────────────────── */}
+              <AnimatePresence>
+                {replyingTo && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="flex items-center gap-2 px-5 py-2 flex-shrink-0"
+                    style={{
+                      background: "rgba(255,0,80,0.08)",
+                      borderTop: "1px solid rgba(255,0,80,0.15)",
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <CornerDownRight size={13} style={{ color: "#ff0050" }} />
+                    <span className="text-white/60 text-xs flex-1">
+                      Replying to{" "}
+                      <span style={{ color: "#ff0050" }}>
+                        @{replyingTo.username}
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      data-ocid="comment.reply_to.close_button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setReplyingTo(null);
+                        setCommentText("");
+                      }}
+                      className="w-5 h-5 rounded-full flex items-center justify-center active:scale-90"
+                      style={{ background: "rgba(255,255,255,0.1)" }}
+                      aria-label="Cancel reply"
+                    >
+                      <X size={10} className="text-white/60" />
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* ── Input bar — flex-shrink-0, anchored to panel (no position:fixed) */}
+              {/* biome-ignore lint/a11y/useKeyWithClickEvents: stopPropagation wrapper */}
+              <div
+                className="flex items-center gap-2 px-4 py-3 flex-shrink-0"
+                style={{
+                  borderTop: "1px solid rgba(255,255,255,0.07)",
+                  background: "rgba(0,0,0,0.5)",
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Emoji toggle */}
+                <button
+                  type="button"
+                  data-ocid="comment.emoji_button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEmojiTabOpen((prev) => !prev);
+                    setGiftPanelOpen(false);
+                  }}
+                  className="w-9 h-9 flex items-center justify-center rounded-full flex-shrink-0 transition-all active:scale-90"
                   style={{
-                    color: emojiTabOpen ? "#ff0050" : "rgba(255,255,255,0.6)",
+                    background: emojiTabOpen
+                      ? "rgba(255,0,80,0.15)"
+                      : "rgba(255,255,255,0.07)",
+                  }}
+                  aria-label="Emoji picker"
+                >
+                  <Smile
+                    size={18}
+                    style={{
+                      color: emojiTabOpen ? "#ff0050" : "rgba(255,255,255,0.6)",
+                    }}
+                  />
+                </button>
+
+                {/* Text input */}
+                <input
+                  ref={commentInputRef}
+                  type="text"
+                  data-ocid="comment.input"
+                  value={commentText}
+                  onChange={(e) => setCommentText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void handleSendComment();
+                  }}
+                  onFocus={() => {
+                    setEmojiTabOpen(false);
+                  }}
+                  placeholder={
+                    replyingTo
+                      ? `Reply to @${replyingTo.username}…`
+                      : "Add a comment…"
+                  }
+                  className="flex-1 px-4 py-2.5 rounded-full text-white text-sm placeholder:text-white/30 outline-none"
+                  style={{
+                    background: "rgba(255,255,255,0.08)",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    caretColor: "#ff0050",
+                    fontSize: "16px",
                   }}
                 />
-              </button>
 
-              {/* Text input */}
-              <input
-                ref={commentInputRef}
-                type="text"
-                data-ocid="comment.input"
-                value={commentText}
-                onChange={(e) => setCommentText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void handleSendComment();
-                }}
-                onFocus={() => {
-                  setEmojiTabOpen(false);
-                }}
-                placeholder={
-                  replyingTo
-                    ? `Reply to @${replyingTo.username}…`
-                    : "Add a comment…"
-                }
-                className="flex-1 px-4 py-2.5 rounded-full text-white text-sm placeholder:text-white/30 outline-none"
-                style={{
-                  background: "rgba(255,255,255,0.08)",
-                  border: "1px solid rgba(255,255,255,0.1)",
-                  caretColor: "#ff0050",
-                  fontSize: "16px",
-                }}
-              />
-
-              {/* Gift button */}
-              <button
-                type="button"
-                data-ocid="comment.gift_button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setGiftPanelOpen((prev) => !prev);
-                  setEmojiTabOpen(false);
-                }}
-                className="w-9 h-9 flex items-center justify-center rounded-full flex-shrink-0 transition-all active:scale-90"
-                style={{
-                  background: giftPanelOpen
-                    ? "rgba(255,0,80,0.15)"
-                    : "rgba(255,255,255,0.07)",
-                }}
-                aria-label="Send a gift"
-              >
-                <Gift
-                  size={18}
-                  style={{
-                    color: giftPanelOpen ? "#ff0050" : "rgba(255,255,255,0.6)",
+                {/* Gift button */}
+                <button
+                  type="button"
+                  data-ocid="comment.gift_button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setGiftPanelOpen((prev) => !prev);
+                    setEmojiTabOpen(false);
                   }}
-                />
-              </button>
+                  className="w-9 h-9 flex items-center justify-center rounded-full flex-shrink-0 transition-all active:scale-90"
+                  style={{
+                    background: giftPanelOpen
+                      ? "rgba(255,0,80,0.15)"
+                      : "rgba(255,255,255,0.07)",
+                  }}
+                  aria-label="Send a gift"
+                >
+                  <Gift
+                    size={18}
+                    style={{
+                      color: giftPanelOpen
+                        ? "#ff0050"
+                        : "rgba(255,255,255,0.6)",
+                    }}
+                  />
+                </button>
 
-              {/* Send button */}
-              <button
-                type="button"
-                data-ocid="comment.submit_button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void handleSendComment();
-                }}
-                disabled={!canSend}
-                className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 disabled:opacity-35 transition-all active:scale-90"
-                style={{
-                  background: canSend
-                    ? "linear-gradient(135deg, #ff0050 0%, #ff3366 100%)"
-                    : "rgba(255,255,255,0.08)",
-                  boxShadow: canSend ? "0 2px 12px rgba(255,0,80,0.4)" : "none",
-                }}
-                aria-label="Send comment"
-              >
-                <Send size={15} className="text-white" />
-              </button>
-            </div>
-          </motion.div>
+                {/* Send button */}
+                <button
+                  type="button"
+                  data-ocid="comment.submit_button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleSendComment();
+                  }}
+                  disabled={!canSend}
+                  className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 disabled:opacity-35 transition-all active:scale-90"
+                  style={{
+                    background: canSend
+                      ? "linear-gradient(135deg, #ff0050 0%, #ff3366 100%)"
+                      : "rgba(255,255,255,0.08)",
+                    boxShadow: canSend
+                      ? "0 2px 12px rgba(255,0,80,0.4)"
+                      : "none",
+                  }}
+                  aria-label="Send comment"
+                >
+                  <Send size={15} className="text-white" />
+                </button>
+              </div>
+            </motion.div>
+          </div>
         </>
       )}
     </AnimatePresence>

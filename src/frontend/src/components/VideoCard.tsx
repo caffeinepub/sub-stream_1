@@ -80,6 +80,7 @@ export function VideoCard({
   const [isPlaying, setIsPlaying] = useState(true);
   const [commentPanelOpen, setCommentPanelOpen] = useState(false);
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
+  const [openGiftOnComment, setOpenGiftOnComment] = useState(false);
 
   // onCommentPanelChange is called synchronously in handlers (not via useEffect)
   // to avoid a 1-render delay that caused BottomNav to remain visible for one frame.
@@ -640,6 +641,61 @@ export function VideoCard({
             </span>
           ))}
         </div>
+
+        {/* Comment teaser bar */}
+        <div
+          className="flex items-center gap-1.5 mb-2"
+          style={{ maxWidth: 240 }}
+        >
+          <button
+            type="button"
+            data-ocid="video.comment_teaser_button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setCommentPanelOpen(true);
+              onCommentPanelChange?.(true);
+            }}
+            className="flex-1 flex items-center gap-1.5 px-3 py-1.5 rounded-full min-w-0"
+            style={{
+              background: "rgba(0,0,0,0.45)",
+              backdropFilter: "blur(8px)",
+              WebkitBackdropFilter: "blur(8px)",
+              border: "1px solid rgba(255,255,255,0.12)",
+            }}
+            aria-label="Open comments"
+          >
+            <span className="text-sm leading-none flex-shrink-0">💬</span>
+            <span
+              className="text-xs truncate"
+              style={{ color: "rgba(255,255,255,0.65)", maxWidth: 140 }}
+            >
+              {commentCount === 0
+                ? "...be the first to comment... 😄"
+                : `${formatCount(commentCount)} comment${commentCount === 1 ? "" : "s"}`}
+            </span>
+          </button>
+          <button
+            type="button"
+            data-ocid="video.comment_gift_teaser_button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpenGiftOnComment(true);
+              setCommentPanelOpen(true);
+              onCommentPanelChange?.(true);
+            }}
+            className="flex items-center justify-center w-8 h-8 rounded-full flex-shrink-0"
+            style={{
+              background: "rgba(0,0,0,0.45)",
+              backdropFilter: "blur(8px)",
+              WebkitBackdropFilter: "blur(8px)",
+              border: "1px solid rgba(255,255,255,0.12)",
+            }}
+            aria-label="Send a gift"
+          >
+            <span className="text-base leading-none">🎁</span>
+          </button>
+        </div>
+
         <div className="flex items-center gap-2 pointer-events-none">
           <div className="flex items-center gap-1.5">
             <Music2 size={12} className="text-white/70 flex-shrink-0" />
@@ -674,16 +730,16 @@ export function VideoCard({
           className="flex flex-col items-center gap-1 group"
           aria-label="Like"
         >
-          <div className="w-11 h-11 flex items-center justify-center">
+          <div className="w-[52px] h-[52px] flex items-center justify-center">
             <Heart
-              size={28}
+              size={32}
               strokeWidth={2}
               fill={liked ? "#ff0050" : "none"}
               stroke={liked ? "#ff0050" : "white"}
               className="transition-all duration-150 group-active:scale-125"
             />
           </div>
-          <span className="text-white text-xs font-medium">
+          <span className="text-white text-sm font-medium">
             {formatCount(likeCount)}
           </span>
         </button>
@@ -700,15 +756,15 @@ export function VideoCard({
             onCommentPanelChange?.(true);
           }}
         >
-          <div className="w-11 h-11 flex items-center justify-center">
+          <div className="w-[52px] h-[52px] flex items-center justify-center">
             <MessageCircle
-              size={28}
+              size={32}
               strokeWidth={2}
               stroke="white"
               className="transition-all duration-150 group-active:scale-125"
             />
           </div>
-          <span className="text-white text-xs font-medium">
+          <span className="text-white text-sm font-medium">
             {formatCount(commentCount)}
           </span>
         </button>
@@ -724,15 +780,15 @@ export function VideoCard({
             setShareSheetOpen(true);
           }}
         >
-          <div className="w-11 h-11 flex items-center justify-center">
+          <div className="w-[52px] h-[52px] flex items-center justify-center">
             <Share2
-              size={26}
+              size={30}
               strokeWidth={2}
               stroke="white"
               className="transition-all duration-150 group-active:scale-125"
             />
           </div>
-          <span className="text-white text-xs font-medium">
+          <span className="text-white text-sm font-medium">
             {formatCount(shareCount)}
           </span>
         </button>
@@ -745,9 +801,9 @@ export function VideoCard({
           aria-label="Bookmark"
           onClick={handleBookmark}
         >
-          <div className="w-11 h-11 flex items-center justify-center">
+          <div className="w-[52px] h-[52px] flex items-center justify-center">
             <Bookmark
-              size={26}
+              size={30}
               strokeWidth={2}
               fill={bookmarked ? "#ff0050" : "none"}
               stroke={bookmarked ? "#ff0050" : "white"}
@@ -755,7 +811,7 @@ export function VideoCard({
             />
           </div>
           <span
-            className="text-xs font-medium"
+            className="text-sm font-medium"
             style={{ color: bookmarked ? "#ff0050" : "white" }}
           >
             Save
@@ -774,15 +830,15 @@ export function VideoCard({
             onCommentPanelChange?.(true);
           }}
         >
-          <div className="w-11 h-11 flex items-center justify-center">
+          <div className="w-[52px] h-[52px] flex items-center justify-center">
             <Sparkles
-              size={26}
+              size={30}
               strokeWidth={2}
               stroke="#ff0050"
               className="transition-all duration-150 group-active:scale-125"
             />
           </div>
-          <span className="text-xs font-medium" style={{ color: "#ff0050" }}>
+          <span className="text-sm font-medium" style={{ color: "#ff0050" }}>
             Gift
           </span>
         </button>
@@ -793,11 +849,11 @@ export function VideoCard({
             type="button"
             data-ocid="video.creator_avatar"
             onClick={handleCreatorTap}
-            className="relative w-12 h-12 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 rounded-full"
+            className="relative w-14 h-14 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 rounded-full"
             aria-label={`View ${displayName}'s profile`}
           >
             <div
-              className="w-12 h-12 rounded-full flex items-center justify-center overflow-hidden border-2 border-white/30"
+              className="w-14 h-14 rounded-full flex items-center justify-center overflow-hidden border-2 border-white/30"
               style={{
                 background: avatarUrl
                   ? "transparent"
@@ -875,10 +931,12 @@ export function VideoCard({
         isOpen={commentPanelOpen}
         onClose={() => {
           setCommentPanelOpen(false);
+          setOpenGiftOnComment(false);
           onCommentPanelChange?.(false);
         }}
         isAuthenticated={isAuthenticated}
         onNavigateToProfile={onNavigateToProfile}
+        openGift={openGiftOnComment}
       />
 
       {/* Share sheet */}
