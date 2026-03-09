@@ -1,8 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bookmark,
-  CornerDownRight,
-  Gift,
   Heart,
   Link,
   MessageCircle,
@@ -10,27 +8,21 @@ import {
   Play,
   Send,
   Share2,
-  Smile,
   Sparkles,
-  Star,
   UserCheck,
   Volume2,
   VolumeX,
   X,
 } from "lucide-react";
-import {
-  AnimatePresence,
-  motion,
-  useMotionValue,
-  useTransform,
-} from "motion/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import type { Comment, Video, VideoInteractionState } from "../backend.d";
+import type { Video, VideoInteractionState } from "../backend.d";
 import { useAuth } from "../context/AuthContext";
 import { useVideoAspectRatio } from "../hooks/useVideoAspectRatio";
 import { getDisplayName, getUsername } from "../lib/userFormat";
 import { getDistributionStage } from "../utils/recommendationEngine";
+import { CommentPanel } from "./CommentPanel";
 import { OnlineDot } from "./OnlineDot";
 
 // Gradient palette for video placeholders
@@ -55,15 +47,6 @@ function formatCount(n: bigint | number): string {
   return String(num);
 }
 
-function formatRelativeTime(nsBigInt: bigint): string {
-  const ms = Number(nsBigInt / BigInt(1_000_000));
-  const diffSec = Math.floor((Date.now() - ms) / 1000);
-  if (diffSec < 60) return `${diffSec}s`;
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h`;
-  return `${Math.floor(diffSec / 86400)}d`;
-}
-
 interface HeartBurst {
   id: number;
   x: number;
@@ -82,69 +65,6 @@ interface VideoCardProps {
   onCommentPanelChange?: (open: boolean) => void;
 }
 
-// ─── Gift catalog ─────────────────────────────────────────────────────────────
-const GIFTS = [
-  { id: "rose", emoji: "🌹", name: "Rose", coins: 1 },
-  { id: "heart", emoji: "❤️", name: "Heart", coins: 1 },
-  { id: "fire", emoji: "🔥", name: "Fire", coins: 5 },
-  { id: "star", emoji: "⭐", name: "Star", coins: 5 },
-  { id: "diamond", emoji: "💎", name: "Diamond", coins: 30 },
-  { id: "crown", emoji: "👑", name: "Crown", coins: 99 },
-  { id: "rocket", emoji: "🚀", name: "Rocket", coins: 199 },
-  { id: "lion", emoji: "🦁", name: "Lion", coins: 499 },
-  { id: "phoenix", emoji: "🦅", name: "Phoenix", coins: 999 },
-] as const;
-
-// ─── Emoji picker data ────────────────────────────────────────────────────────
-const EMOJIS = [
-  "😂",
-  "❤️",
-  "😍",
-  "🤣",
-  "😊",
-  "🙏",
-  "💕",
-  "😭",
-  "😘",
-  "👍",
-  "😅",
-  "👏",
-  "😁",
-  "🔥",
-  "🥰",
-  "💯",
-  "🤦",
-  "🤷",
-  "😢",
-  "🙄",
-  "😏",
-  "🎉",
-  "👀",
-  "✨",
-  "😔",
-  "💪",
-  "🤩",
-  "😎",
-  "🤔",
-  "🥳",
-];
-
-// ─── Sticker data ─────────────────────────────────────────────────────────────
-const STICKERS = [
-  "🥳",
-  "🤯",
-  "💀",
-  "👻",
-  "🤡",
-  "👽",
-  "🤖",
-  "😈",
-  "🎃",
-  "💩",
-  "🤬",
-  "🥸",
-];
-
 export function VideoCard({
   video,
   isAuthenticated = false,
@@ -159,33 +79,10 @@ export function VideoCard({
   const [heartBursts, setHeartBursts] = useState<HeartBurst[]>([]);
   const [isPlaying, setIsPlaying] = useState(true);
   const [commentPanelOpen, setCommentPanelOpen] = useState(false);
-  const [giftPanelOpen, setGiftPanelOpen] = useState(false);
-  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
-  const [stickerPanelOpen, setStickerPanelOpen] = useState(false);
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
-  const [commentText, setCommentText] = useState("");
-  const commentScrollRef = useRef<HTMLDivElement>(null);
-  // Reply state
-  const [replyingTo, setReplyingTo] = useState<{
-    id: bigint;
-    username: string;
-  } | null>(null);
-  // Locally tracked liked comment IDs (session only)
-  const [likedCommentIds, setLikedCommentIds] = useState<Set<string>>(
-    new Set(),
-  );
-  const commentInputRef = useRef<HTMLInputElement>(null);
 
-  // Swipe-to-close motion value for the comment panel
-  const panelY = useMotionValue(0);
-  const panelOpacity = useTransform(panelY, [0, 200], [1, 0]);
-  const swipeStartY = useRef<number | null>(null);
-
-  // Notify parent when panel opens/closes
-  // biome-ignore lint/correctness/useExhaustiveDependencies: onCommentPanelChange is a callback ref — adding it would cause infinite loops
-  useEffect(() => {
-    onCommentPanelChange?.(commentPanelOpen);
-  }, [commentPanelOpen]);
+  // onCommentPanelChange is called synchronously in handlers (not via useEffect)
+  // to avoid a 1-render delay that caused BottomNav to remain visible for one frame.
 
   // Refs for tap detection
   const lastTapRef = useRef<number>(0);
@@ -233,32 +130,6 @@ export function VideoCard({
     interactionState?.shareCount != null
       ? Number(interactionState.shareCount)
       : Number(video.shareCount);
-
-  // ─── Real comments ───────────────────────────────────────────────────────
-  const commentsQueryKey = useMemo(
-    () => ["comments", video.id.toString()],
-    [video.id],
-  );
-  const { data: realComments = [], isLoading: commentsLoading } = useQuery({
-    queryKey: commentsQueryKey,
-    queryFn: async () => {
-      if (!actor) return [];
-      return actor.getComments(video.id);
-    },
-    enabled: !!actor && commentPanelOpen,
-    staleTime: 10_000,
-  });
-
-  // Auto-scroll to newest comments when panel opens or new comment arrives
-  // biome-ignore lint/correctness/useExhaustiveDependencies: commentScrollRef is a stable ref
-  useEffect(() => {
-    if (commentPanelOpen && commentScrollRef.current) {
-      const el = commentScrollRef.current;
-      setTimeout(() => {
-        el.scrollTop = el.scrollHeight;
-      }, 80);
-    }
-  }, [commentPanelOpen, realComments.length]);
 
   // ─── Creator info ────────────────────────────────────────────────────────
   const { data: creatorUser } = useQuery({
@@ -557,114 +428,6 @@ export function VideoCard({
     }
   };
 
-  const handleSendComment = async () => {
-    if (!commentText.trim()) return;
-    if (!isAuthenticated || !actor) {
-      toast.error("Log in to comment");
-      return;
-    }
-    const text = commentText.trim();
-    const replyToId = replyingTo?.id ?? null;
-    setCommentText("");
-    setReplyingTo(null);
-    try {
-      await actor.addComment(video.id, text, replyToId);
-      await queryClient.invalidateQueries({ queryKey: commentsQueryKey });
-      await queryClient.invalidateQueries({ queryKey: interactionQueryKey });
-      // Scroll to bottom after posting
-      setTimeout(() => {
-        if (commentScrollRef.current) {
-          commentScrollRef.current.scrollTop =
-            commentScrollRef.current.scrollHeight;
-        }
-      }, 150);
-    } catch {
-      toast.error("Failed to post comment");
-    }
-  };
-
-  const handleLikeComment = async (comment: Comment) => {
-    if (!isAuthenticated || !actor) {
-      toast.error("Log in to like comments");
-      return;
-    }
-    const idStr = comment.id.toString();
-    const isLiked = likedCommentIds.has(idStr);
-    // Optimistic UI
-    setLikedCommentIds((prev) => {
-      const next = new Set(prev);
-      if (isLiked) {
-        next.delete(idStr);
-      } else {
-        next.add(idStr);
-      }
-      return next;
-    });
-    try {
-      if (isLiked) {
-        await actor.unlikeComment(comment.id);
-      } else {
-        await actor.likeComment(comment.id);
-      }
-      await queryClient.invalidateQueries({ queryKey: commentsQueryKey });
-    } catch {
-      // Rollback
-      setLikedCommentIds((prev) => {
-        const next = new Set(prev);
-        if (isLiked) {
-          next.add(idStr);
-        } else {
-          next.delete(idStr);
-        }
-        return next;
-      });
-      toast.error("Failed to update like");
-    }
-  };
-
-  const handleReply = (comment: Comment, authorUsername: string) => {
-    setReplyingTo({ id: comment.id, username: authorUsername });
-    setCommentText(`@${authorUsername} `);
-    setTimeout(() => commentInputRef.current?.focus(), 80);
-  };
-
-  const handleSendGift = (gift: (typeof GIFTS)[number]) => {
-    if (!isAuthenticated) {
-      toast.error("Log in to send gifts");
-      return;
-    }
-    const coins = userProfile
-      ? ((userProfile as { coinBalance?: number }).coinBalance ?? 0)
-      : 0;
-    if (coins < gift.coins) {
-      toast.error("Not enough coins. Recharge to continue.");
-      return;
-    }
-    toast.success(`${gift.emoji} Gift sent!`);
-    setGiftPanelOpen(false);
-  };
-
-  const handleSendSticker = async (sticker: string) => {
-    if (!isAuthenticated || !actor) {
-      toast.error("Log in to send stickers");
-      return;
-    }
-    setStickerPanelOpen(false);
-    try {
-      await actor.addComment(video.id, sticker, null);
-      await queryClient.invalidateQueries({ queryKey: commentsQueryKey });
-      await queryClient.invalidateQueries({ queryKey: interactionQueryKey });
-      setTimeout(() => {
-        if (commentScrollRef.current) {
-          commentScrollRef.current.scrollTop =
-            commentScrollRef.current.scrollHeight;
-        }
-      }, 150);
-    } catch {
-      toast.error("Failed to send sticker");
-    }
-  };
-
   const handleCopyLink = async () => {
     const url = `${window.location.origin}/video/${video.id.toString()}`;
     try {
@@ -934,6 +697,7 @@ export function VideoCard({
           onClick={(e) => {
             e.stopPropagation();
             setCommentPanelOpen(true);
+            onCommentPanelChange?.(true);
           }}
         >
           <div className="w-11 h-11 flex items-center justify-center">
@@ -1007,7 +771,7 @@ export function VideoCard({
           onClick={(e) => {
             e.stopPropagation();
             setCommentPanelOpen(true);
-            setGiftPanelOpen(true);
+            onCommentPanelChange?.(true);
           }}
         >
           <div className="w-11 h-11 flex items-center justify-center">
@@ -1105,528 +869,17 @@ export function VideoCard({
         </div>
       </div>
 
-      {/* Comment panel bottom sheet */}
-      <AnimatePresence>
-        {commentPanelOpen && (
-          <>
-            {/* Backdrop */}
-            {/* biome-ignore lint/a11y/useKeyWithClickEvents: backdrop dismiss */}
-            <div
-              className="fixed inset-0 z-[190]"
-              style={{
-                background: "rgba(0,0,0,0.6)",
-                backdropFilter: "blur(4px)",
-                WebkitBackdropFilter: "blur(4px)",
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                setCommentPanelOpen(false);
-                setGiftPanelOpen(false);
-                setEmojiPickerOpen(false);
-                setStickerPanelOpen(false);
-              }}
-            />
-            <motion.div
-              data-ocid="video.comment_panel"
-              initial={{ y: "100%" }}
-              animate={{ y: 0 }}
-              exit={{ y: "100%" }}
-              transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
-              className="fixed bottom-0 left-0 right-0 z-[200] rounded-t-3xl flex flex-col"
-              onTouchStart={(e) => {
-                // Only initiate swipe from the drag handle / header area
-                const target = e.target as HTMLElement;
-                if (target.closest("[data-drag-handle]")) {
-                  swipeStartY.current = e.touches[0]?.clientY ?? null;
-                }
-              }}
-              onTouchMove={(e) => {
-                if (swipeStartY.current === null) return;
-                const currentY = e.touches[0]?.clientY ?? 0;
-                const delta = currentY - swipeStartY.current;
-                if (delta > 0) {
-                  panelY.set(delta);
-                }
-              }}
-              onTouchEnd={(e) => {
-                if (swipeStartY.current === null) return;
-                const currentY = e.changedTouches[0]?.clientY ?? 0;
-                const delta = currentY - swipeStartY.current;
-                swipeStartY.current = null;
-                if (delta > 80) {
-                  panelY.set(0);
-                  setCommentPanelOpen(false);
-                  setGiftPanelOpen(false);
-                  setEmojiPickerOpen(false);
-                  setStickerPanelOpen(false);
-                } else {
-                  panelY.set(0);
-                }
-              }}
-              style={{
-                background: "rgba(10,10,10,0.97)",
-                backdropFilter: "blur(20px)",
-                WebkitBackdropFilter: "blur(20px)",
-                border: "1px solid rgba(255,255,255,0.08)",
-                borderBottom: "none",
-                height: "85vh",
-                y: panelY,
-                opacity: panelOpacity,
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Drag handle — initiates swipe-to-close */}
-              <div
-                data-drag-handle
-                className="flex justify-center pt-3 pb-1 flex-shrink-0 cursor-grab active:cursor-grabbing touch-none"
-              >
-                <div
-                  className="w-12 h-1.5 rounded-full"
-                  style={{ background: "rgba(255,255,255,0.25)" }}
-                />
-              </div>
-
-              {/* Header */}
-              <div
-                data-drag-handle
-                className="flex items-center justify-between px-5 py-3 flex-shrink-0"
-              >
-                <h3
-                  className="text-white font-bold text-base"
-                  style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}
-                >
-                  Comments{" "}
-                  <span className="text-white/40 font-normal text-sm">
-                    {realComments.length > 0 ? realComments.length : ""}
-                  </span>
-                </h3>
-                <button
-                  type="button"
-                  data-ocid="video.comment_panel_close_button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setCommentPanelOpen(false);
-                    setGiftPanelOpen(false);
-                    setEmojiPickerOpen(false);
-                    setStickerPanelOpen(false);
-                  }}
-                  className="w-8 h-8 rounded-full flex items-center justify-center text-white/50 hover:text-white transition-colors"
-                  style={{ background: "rgba(255,255,255,0.07)" }}
-                  aria-label="Close comments"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-
-              {/* Comments list — newest at bottom, oldest at top */}
-              {/* biome-ignore lint/a11y/useKeyWithClickEvents: stopPropagation wrapper only */}
-              <div
-                ref={commentScrollRef}
-                className="flex-1 overflow-y-auto px-5 pb-2"
-                style={{
-                  scrollbarWidth: "none",
-                  overscrollBehavior: "contain",
-                }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                {commentsLoading ? (
-                  <div
-                    data-ocid="video.comments_loading_state"
-                    className="flex flex-col items-center justify-center py-12 gap-3"
-                  >
-                    <div
-                      className="w-8 h-8 rounded-full animate-pulse"
-                      style={{ background: "rgba(255,0,80,0.3)" }}
-                    />
-                    <p className="text-white/40 text-sm">Loading comments…</p>
-                  </div>
-                ) : realComments.length === 0 ? (
-                  <div
-                    data-ocid="video.comments_empty_state"
-                    className="flex flex-col items-center justify-center py-16 gap-3"
-                  >
-                    <MessageCircle size={40} className="text-white/15" />
-                    <p className="text-white/40 text-sm text-center">
-                      No comments yet.{"\n"}Be the first to say something!
-                    </p>
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-5 pt-2 pb-4">
-                    {/* Oldest first so newest appear at bottom */}
-                    {[...realComments]
-                      .sort((a, b) => Number(a.createdAt - b.createdAt))
-                      .map((comment, idx) => (
-                        <CommentItem
-                          key={comment.id.toString()}
-                          comment={comment}
-                          idx={idx}
-                          scope="video"
-                          isLiked={likedCommentIds.has(comment.id.toString())}
-                          onLike={() => void handleLikeComment(comment)}
-                          onReply={(username) => handleReply(comment, username)}
-                          onNavigateToProfile={onNavigateToProfile}
-                        />
-                      ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Gift panel sub-sheet */}
-              <AnimatePresence>
-                {giftPanelOpen && (
-                  <motion.div
-                    data-ocid="video.gift_panel"
-                    initial={{ y: "100%" }}
-                    animate={{ y: 0 }}
-                    exit={{ y: "100%" }}
-                    transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-                    className="absolute bottom-0 left-0 right-0 rounded-t-3xl flex flex-col z-10"
-                    style={{
-                      background: "rgba(18,18,18,0.99)",
-                      backdropFilter: "blur(24px)",
-                      WebkitBackdropFilter: "blur(24px)",
-                      border: "1px solid rgba(255,255,255,0.1)",
-                      borderBottom: "none",
-                      maxHeight: "70%",
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {/* Gift panel header */}
-                    <div className="flex items-center justify-between px-5 pt-4 pb-3 flex-shrink-0">
-                      <div className="flex items-center gap-2">
-                        <Gift size={16} style={{ color: "#ff0050" }} />
-                        <span
-                          className="text-white font-bold text-sm"
-                          style={{
-                            fontFamily: "'Bricolage Grotesque', sans-serif",
-                          }}
-                        >
-                          Send a Gift
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-white/40 text-xs">
-                          🪙{" "}
-                          {(userProfile as { coinBalance?: number })
-                            ?.coinBalance ?? 0}{" "}
-                          coins
-                        </span>
-                        <button
-                          type="button"
-                          data-ocid="video.gift_panel_close_button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setGiftPanelOpen(false);
-                          }}
-                          className="w-7 h-7 rounded-full flex items-center justify-center"
-                          style={{ background: "rgba(255,255,255,0.07)" }}
-                          aria-label="Close gifts"
-                        >
-                          <X size={14} className="text-white/60" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Gift grid */}
-                    <div
-                      className="overflow-y-auto px-4 pb-6"
-                      style={{ scrollbarWidth: "none" }}
-                    >
-                      <div className="grid grid-cols-4 gap-3">
-                        {GIFTS.map((gift) => (
-                          <button
-                            key={gift.id}
-                            type="button"
-                            data-ocid={`video.gift.${gift.id}_button`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleSendGift(gift);
-                            }}
-                            className="flex flex-col items-center gap-1.5 py-3 rounded-2xl transition-all active:scale-95"
-                            style={{
-                              background: "rgba(255,255,255,0.05)",
-                              border: "1px solid rgba(255,255,255,0.08)",
-                            }}
-                          >
-                            <span className="text-2xl">{gift.emoji}</span>
-                            <span className="text-white/80 text-[10px] font-medium truncate w-full text-center">
-                              {gift.name}
-                            </span>
-                            <span
-                              className="text-[10px] font-bold"
-                              style={{ color: "#ff0050" }}
-                            >
-                              🪙 {gift.coins}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* Emoji picker sub-panel */}
-              <AnimatePresence>
-                {emojiPickerOpen && !giftPanelOpen && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: 10 }}
-                    transition={{ duration: 0.2 }}
-                    className="px-4 pt-3 pb-2 flex-shrink-0"
-                    style={{ borderTop: "1px solid rgba(255,255,255,0.07)" }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="grid grid-cols-10 gap-1">
-                      {EMOJIS.map((emoji) => (
-                        <button
-                          key={emoji}
-                          type="button"
-                          className="text-xl leading-none py-1 rounded-lg transition-all active:scale-90 hover:bg-white/10"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setCommentText((prev) => prev + emoji);
-                            commentInputRef.current?.focus();
-                          }}
-                          aria-label={`Insert ${emoji}`}
-                        >
-                          {emoji}
-                        </button>
-                      ))}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* Sticker panel sub-panel */}
-              <AnimatePresence>
-                {stickerPanelOpen && !giftPanelOpen && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: 10 }}
-                    transition={{ duration: 0.2 }}
-                    className="px-4 pt-3 pb-2 flex-shrink-0"
-                    style={{ borderTop: "1px solid rgba(255,255,255,0.07)" }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <p className="text-white/40 text-[10px] mb-2 uppercase tracking-wider font-semibold">
-                      Stickers
-                    </p>
-                    <div className="grid grid-cols-6 gap-2">
-                      {STICKERS.map((sticker) => (
-                        <button
-                          key={sticker}
-                          type="button"
-                          className="text-3xl leading-none py-2 rounded-xl transition-all active:scale-90 hover:bg-white/10"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void handleSendSticker(sticker);
-                          }}
-                          aria-label={`Send sticker ${sticker}`}
-                        >
-                          {sticker}
-                        </button>
-                      ))}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* Reply chip */}
-              <AnimatePresence>
-                {replyingTo && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }}
-                    className="flex items-center gap-2 px-5 py-2 flex-shrink-0"
-                    style={{
-                      background: "rgba(255,0,80,0.08)",
-                      borderTop: "1px solid rgba(255,0,80,0.15)",
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <CornerDownRight size={13} style={{ color: "#ff0050" }} />
-                    <span className="text-white/60 text-xs flex-1">
-                      Replying to{" "}
-                      <span style={{ color: "#ff0050" }}>
-                        @{replyingTo.username}
-                      </span>
-                    </span>
-                    <button
-                      type="button"
-                      data-ocid="video.reply_to_clear_button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setReplyingTo(null);
-                        setCommentText("");
-                      }}
-                      className="w-5 h-5 rounded-full flex items-center justify-center"
-                      style={{ background: "rgba(255,255,255,0.1)" }}
-                      aria-label="Cancel reply"
-                    >
-                      <X size={10} className="text-white/60" />
-                    </button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* Gift row — above input bar */}
-              {/* biome-ignore lint/a11y/useKeyWithClickEvents: stopPropagation wrapper only */}
-              <div
-                className="flex items-center gap-2 px-5 py-2 flex-shrink-0"
-                style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <button
-                  type="button"
-                  data-ocid="video.comment_gift_button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setGiftPanelOpen((prev) => !prev);
-                    setEmojiPickerOpen(false);
-                    setStickerPanelOpen(false);
-                  }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all active:scale-95"
-                  style={{
-                    background: giftPanelOpen
-                      ? "rgba(255,0,80,0.2)"
-                      : "rgba(255,255,255,0.07)",
-                    border: `1px solid ${giftPanelOpen ? "rgba(255,0,80,0.4)" : "rgba(255,255,255,0.1)"}`,
-                    color: giftPanelOpen ? "#ff0050" : "rgba(255,255,255,0.7)",
-                  }}
-                  aria-label="Send a gift"
-                >
-                  <Gift size={13} />
-                  Gift
-                </button>
-              </div>
-
-              {/* Input bar */}
-              {/* biome-ignore lint/a11y/useKeyWithClickEvents: stopPropagation wrapper only */}
-              <div
-                className="flex items-center gap-2 px-4 py-3 flex-shrink-0"
-                style={{
-                  borderTop: "1px solid rgba(255,255,255,0.07)",
-                  background: "rgba(0,0,0,0.5)",
-                  paddingBottom:
-                    "calc(0.75rem + env(safe-area-inset-bottom, 0px))",
-                }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                {/* Emoji button */}
-                <button
-                  type="button"
-                  data-ocid="video.comment_emoji_button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setEmojiPickerOpen((prev) => !prev);
-                    setStickerPanelOpen(false);
-                    setGiftPanelOpen(false);
-                  }}
-                  className="w-9 h-9 flex items-center justify-center rounded-full flex-shrink-0 transition-all active:scale-90"
-                  style={{
-                    background: emojiPickerOpen
-                      ? "rgba(255,0,80,0.15)"
-                      : "rgba(255,255,255,0.07)",
-                  }}
-                  aria-label="Emoji picker"
-                >
-                  <Smile
-                    size={18}
-                    style={{
-                      color: emojiPickerOpen
-                        ? "#ff0050"
-                        : "rgba(255,255,255,0.6)",
-                    }}
-                  />
-                </button>
-
-                {/* Sticker button */}
-                <button
-                  type="button"
-                  data-ocid="video.comment_sticker_button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setStickerPanelOpen((prev) => !prev);
-                    setEmojiPickerOpen(false);
-                    setGiftPanelOpen(false);
-                  }}
-                  className="w-9 h-9 flex items-center justify-center rounded-full flex-shrink-0 transition-all active:scale-90"
-                  style={{
-                    background: stickerPanelOpen
-                      ? "rgba(255,0,80,0.15)"
-                      : "rgba(255,255,255,0.07)",
-                  }}
-                  aria-label="Sticker picker"
-                >
-                  <Star
-                    size={18}
-                    style={{
-                      color: stickerPanelOpen
-                        ? "#ff0050"
-                        : "rgba(255,255,255,0.6)",
-                    }}
-                  />
-                </button>
-
-                {/* Text input */}
-                <input
-                  ref={commentInputRef}
-                  type="text"
-                  data-ocid="video.comment_input"
-                  value={commentText}
-                  onChange={(e) => setCommentText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void handleSendComment();
-                  }}
-                  onFocus={() => {
-                    setEmojiPickerOpen(false);
-                    setStickerPanelOpen(false);
-                  }}
-                  placeholder={
-                    replyingTo
-                      ? `Reply to @${replyingTo.username}…`
-                      : "Add a comment…"
-                  }
-                  className="flex-1 px-4 py-2.5 rounded-full text-white text-sm placeholder:text-white/30 outline-none"
-                  style={{
-                    background: "rgba(255,255,255,0.08)",
-                    border: "1px solid rgba(255,255,255,0.1)",
-                    caretColor: "#ff0050",
-                    fontSize: "16px",
-                  }}
-                />
-
-                {/* Send button */}
-                <button
-                  type="button"
-                  data-ocid="video.comment_submit_button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void handleSendComment();
-                  }}
-                  disabled={!commentText.trim()}
-                  className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 disabled:opacity-35 transition-all active:scale-90"
-                  style={{
-                    background: commentText.trim()
-                      ? "linear-gradient(135deg, #ff0050 0%, #ff3366 100%)"
-                      : "rgba(255,255,255,0.08)",
-                    boxShadow: commentText.trim()
-                      ? "0 2px 12px rgba(255,0,80,0.4)"
-                      : "none",
-                  }}
-                  aria-label="Send comment"
-                >
-                  <Send size={15} className="text-white" />
-                </button>
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
+      {/* Comment panel — standalone component */}
+      <CommentPanel
+        videoId={video.id}
+        isOpen={commentPanelOpen}
+        onClose={() => {
+          setCommentPanelOpen(false);
+          onCommentPanelChange?.(false);
+        }}
+        isAuthenticated={isAuthenticated}
+        onNavigateToProfile={onNavigateToProfile}
+      />
 
       {/* Share sheet */}
       <AnimatePresence>
@@ -1759,144 +1012,5 @@ export function VideoCard({
   );
 }
 
-// ── CommentItem: shared comment row with real user profile ────────────────────
-
-interface CommentItemProps {
-  comment: Comment;
-  idx: number;
-  scope: string;
-  isLiked: boolean;
-  onLike: () => void;
-  onReply: (username: string) => void;
-  onNavigateToProfile?: (principal: string) => void;
-}
-
-export function CommentItem({
-  comment,
-  idx,
-  scope,
-  isLiked,
-  onLike,
-  onReply,
-  onNavigateToProfile,
-}: CommentItemProps) {
-  const { actor } = useAuth();
-  const authorStr = comment.author.toString();
-
-  const { data: authorProfile } = useQuery({
-    queryKey: ["userProfile", authorStr],
-    queryFn: async () => {
-      if (!actor) return null;
-      return actor.getUserProfile(comment.author);
-    },
-    enabled: !!actor,
-    staleTime: 120_000,
-  });
-
-  const displayName = authorProfile
-    ? getDisplayName(authorProfile.name) || getUsername(authorProfile.name)
-    : authorStr.slice(0, 8);
-  const username = authorProfile ? getUsername(authorProfile.name) : "";
-  const avatarUrl = authorProfile?.avatarUrl ?? "";
-  const initials = (displayName || "U").slice(0, 2).toUpperCase();
-
-  const relTime = formatRelativeTime(comment.createdAt);
-  const totalLikes = isLiked
-    ? Number(comment.likeCount) + (isLiked ? 0 : 0) // already accounted for
-    : Number(comment.likeCount);
-
-  return (
-    <div
-      data-ocid={`${scope}.comment.item.${idx + 1}`}
-      className="flex items-start gap-3"
-    >
-      {/* Avatar — tappable */}
-      <button
-        type="button"
-        onClick={() => onNavigateToProfile?.(authorStr)}
-        className="flex-shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff0050] rounded-full"
-        aria-label={`View ${displayName}'s profile`}
-      >
-        <div
-          className="w-9 h-9 rounded-full flex items-center justify-center overflow-hidden"
-          style={{
-            background: avatarUrl
-              ? "transparent"
-              : "linear-gradient(135deg, #ff0050, #ff6b35)",
-          }}
-        >
-          {avatarUrl ? (
-            <img
-              src={avatarUrl}
-              alt={displayName}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <span className="text-white text-[10px] font-bold">{initials}</span>
-          )}
-        </div>
-      </button>
-
-      {/* Content */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-          <button
-            type="button"
-            onClick={() => onNavigateToProfile?.(authorStr)}
-            className="text-left focus-visible:outline-none"
-          >
-            <span
-              className="text-white font-bold text-xs hover:underline"
-              style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}
-            >
-              {displayName}
-            </span>
-            {username && (
-              <span className="text-white/40 text-[10px] ml-1">
-                @{username}
-              </span>
-            )}
-          </button>
-          <span className="text-white/30 text-[10px]">{relTime}</span>
-        </div>
-        <p className="text-white/80 text-sm leading-snug">{comment.text}</p>
-        {/* Reply button */}
-        <button
-          type="button"
-          data-ocid={`${scope}.comment.reply_button.${idx + 1}`}
-          onClick={() => onReply(username || displayName.toLowerCase())}
-          className="flex items-center gap-1 mt-1.5"
-          aria-label="Reply to comment"
-        >
-          <span className="text-white/40 text-[10px] hover:text-white/70 transition-colors">
-            Reply
-          </span>
-        </button>
-      </div>
-
-      {/* Like button */}
-      <button
-        type="button"
-        data-ocid={`${scope}.comment.like_button.${idx + 1}`}
-        onClick={onLike}
-        className="flex-shrink-0 flex flex-col items-center gap-0.5"
-        aria-label={isLiked ? "Unlike comment" : "Like comment"}
-      >
-        <Heart
-          size={14}
-          fill={isLiked ? "#ff0050" : "none"}
-          stroke={isLiked ? "#ff0050" : "rgba(255,255,255,0.4)"}
-          className="transition-colors"
-        />
-        {totalLikes > 0 && (
-          <span
-            className="text-[10px]"
-            style={{ color: isLiked ? "#ff0050" : "rgba(255,255,255,0.4)" }}
-          >
-            {formatCount(totalLikes)}
-          </span>
-        )}
-      </button>
-    </div>
-  );
-}
+// ── CommentItem: re-exported from CommentPanel for backward compatibility ─────
+export { CommentItem } from "./CommentPanel";

@@ -1,6 +1,15 @@
 import type { Principal } from "@icp-sdk/core/principal";
-import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Hash, Radio, Search, User, Video, X } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  ArrowLeft,
+  Hash,
+  Radio,
+  Search,
+  User,
+  UserCheck,
+  Video,
+  X,
+} from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { UserProfile, Video as VideoType } from "../backend.d";
@@ -51,6 +60,107 @@ function formatCount(n: bigint | number): string {
   return String(num);
 }
 
+// ─── Parse packed name helper ──────────────────────────────────────────────────
+function parseName(rawName: string): { displayName: string; username: string } {
+  if (rawName.includes("|")) {
+    const [d, u] = rawName.split("|", 2);
+    return { displayName: d ?? "", username: u ?? "" };
+  }
+  return { displayName: rawName, username: "" };
+}
+
+// ─── User matches query helper ─────────────────────────────────────────────────
+function userMatchesQuery(profile: UserProfile, q: string): boolean {
+  if (!q) return true;
+  // Strip leading @ from query
+  const stripped = q.startsWith("@") ? q.slice(1) : q;
+  const { displayName, username } = parseName(profile.name ?? "");
+  return (
+    displayName.toLowerCase().includes(stripped) ||
+    username.toLowerCase().includes(stripped) ||
+    // Also match the full packed name
+    (profile.name ?? "")
+      .toLowerCase()
+      .includes(stripped)
+  );
+}
+
+// ─── Follow Button ─────────────────────────────────────────────────────────────
+
+function FollowButton({
+  principalStr,
+  onTap,
+}: {
+  principalStr: string;
+  onTap: (e: React.MouseEvent) => void;
+}) {
+  const { actor } = useAuth();
+  const qc = useQueryClient();
+
+  const { data: following = false } = useQuery<boolean>({
+    queryKey: ["isFollowing", principalStr],
+    queryFn: async () => {
+      if (!actor) return false;
+      const { Principal: PrincipalLib } = await import(
+        "@icp-sdk/core/principal"
+      );
+      return actor.isFollowing(PrincipalLib.fromText(principalStr));
+    },
+    enabled: !!actor && !!principalStr,
+    staleTime: 0,
+  });
+
+  const handleClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!actor) return;
+    const { Principal: PrincipalLib } = await import("@icp-sdk/core/principal");
+    const p = PrincipalLib.fromText(principalStr);
+    if (following) {
+      await actor.unfollow(p);
+    } else {
+      await actor.follow(p);
+    }
+    qc.invalidateQueries({ queryKey: ["isFollowing", principalStr] });
+    qc.invalidateQueries({ queryKey: ["followerCount", principalStr] });
+    qc.invalidateQueries({ queryKey: ["allUserProfiles"] });
+  };
+
+  return (
+    <motion.button
+      type="button"
+      data-ocid="search.follow_button"
+      whileTap={{ scale: 0.93 }}
+      onClick={(e) => {
+        void handleClick(e);
+        onTap(e);
+      }}
+      className="flex-shrink-0 px-4 py-1.5 rounded-full text-xs font-bold transition-all"
+      style={
+        following
+          ? {
+              background: "rgba(255,255,255,0.1)",
+              color: "rgba(255,255,255,0.6)",
+              border: "1px solid rgba(255,255,255,0.2)",
+            }
+          : {
+              background: "linear-gradient(135deg, #ff0050 0%, #ff3377 100%)",
+              color: "white",
+              border: "1px solid rgba(255,0,80,0.4)",
+            }
+      }
+    >
+      {following ? (
+        <span className="flex items-center gap-1">
+          <UserCheck size={11} />
+          Following
+        </span>
+      ) : (
+        "Follow"
+      )}
+    </motion.button>
+  );
+}
+
 // ─── User result card ──────────────────────────────────────────────────────────
 
 function UserCard({
@@ -58,38 +168,39 @@ function UserCard({
   profile,
   index,
   onTap,
+  currentUserPrincipalStr,
 }: {
   principalStr: string;
   profile: UserProfile;
   index: number;
   onTap: (p: string) => void;
+  currentUserPrincipalStr?: string;
 }) {
-  const rawName = profile.name ?? "";
-  const [displayName, username] = rawName.includes("|")
-    ? rawName.split("|", 2)
-    : [rawName, ""];
+  const { displayName, username } = parseName(profile.name ?? "");
   const initials = (displayName || "U").slice(0, 2).toUpperCase();
+  const isSelf = currentUserPrincipalStr === principalStr;
 
   return (
-    <motion.button
-      type="button"
+    <motion.div
       data-ocid={`search.user_result.${index}`}
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2, delay: index * 0.04 }}
-      onClick={() => onTap(principalStr)}
-      className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all active:scale-98"
+      className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl"
       style={{
         background: "rgba(255,255,255,0.04)",
         border: "1px solid rgba(255,255,255,0.06)",
       }}
     >
-      {/* Avatar */}
-      <div
-        className="w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center overflow-hidden"
+      {/* Avatar — tappable to open profile */}
+      <button
+        type="button"
+        onClick={() => onTap(principalStr)}
+        className="w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center overflow-hidden focus:outline-none"
         style={{
           background: "linear-gradient(135deg, #ff0050 0%, #ff6b35 100%)",
         }}
+        aria-label={`Open ${displayName || "user"}'s profile`}
       >
         {profile.avatarUrl ? (
           <img
@@ -100,9 +211,14 @@ function UserCard({
         ) : (
           <span className="text-white font-bold text-sm">{initials}</span>
         )}
-      </div>
-      {/* Info */}
-      <div className="flex-1 text-left min-w-0">
+      </button>
+
+      {/* Info — tappable to open profile */}
+      <button
+        type="button"
+        onClick={() => onTap(principalStr)}
+        className="flex-1 text-left min-w-0 focus:outline-none"
+      >
         <p
           className="text-white font-bold text-sm truncate"
           style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}
@@ -115,19 +231,16 @@ function UserCard({
         <p className="text-white/30 text-xs mt-0.5">
           {formatCount(profile.followerCount)} followers
         </p>
-      </div>
-      {/* Follow hint */}
-      <div
-        className="flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold"
-        style={{
-          background: "rgba(255,0,80,0.15)",
-          color: "#ff6b8a",
-          border: "1px solid rgba(255,0,80,0.25)",
-        }}
-      >
-        View
-      </div>
-    </motion.button>
+      </button>
+
+      {/* Follow button — skip for self */}
+      {!isSelf && (
+        <FollowButton
+          principalStr={principalStr}
+          onTap={(e) => e.stopPropagation()}
+        />
+      )}
+    </motion.div>
   );
 }
 
@@ -244,6 +357,47 @@ function HashtagRow({
   );
 }
 
+// ─── Suggested Users section ───────────────────────────────────────────────────
+
+function SuggestedUsers({
+  userProfiles,
+  currentUserPrincipalStr,
+  onTap,
+}: {
+  userProfiles: Array<{ principalStr: string; profile: UserProfile }>;
+  currentUserPrincipalStr?: string;
+  onTap: (p: string) => void;
+}) {
+  const suggestions = userProfiles
+    .filter(({ principalStr }) => principalStr !== currentUserPrincipalStr)
+    .slice(0, 6);
+
+  if (suggestions.length === 0) return null;
+
+  return (
+    <div className="mt-2">
+      <p
+        className="text-white/50 text-xs font-semibold uppercase tracking-widest mb-3 px-1"
+        style={{ color: "rgba(255,255,255,0.4)" }}
+      >
+        Suggested Users
+      </p>
+      <div className="space-y-2">
+        {suggestions.map(({ principalStr, profile }, i) => (
+          <UserCard
+            key={principalStr}
+            principalStr={principalStr}
+            profile={profile}
+            index={i + 1}
+            onTap={onTap}
+            currentUserPrincipalStr={currentUserPrincipalStr}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main SearchPage ───────────────────────────────────────────────────────────
 
 export function SearchPage({
@@ -253,9 +407,12 @@ export function SearchPage({
 }: SearchPageProps) {
   const { actor } = useAuth();
   const [query, setQuery] = useState("");
-  const [activeTab, setActiveTab] = useState<SearchTab>("Top");
+  const [activeTab, setActiveTab] = useState<SearchTab>("Users");
   const [history, setHistory] = useState<string[]>(loadHistory);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Determine self principal from localStorage (set by auth system)
+  const selfPrincipalStr = localStorage.getItem("ss_principal") ?? undefined;
 
   // Focus input on mount
   useEffect(() => {
@@ -284,10 +441,11 @@ export function SearchPage({
       return actor.getAllUserids();
     },
     enabled: !!actor,
+    staleTime: 0,
   });
 
   // Fetch all user profiles
-  const { data: userProfiles = [] } = useQuery<
+  const { data: userProfiles = [], isLoading: profilesLoading } = useQuery<
     Array<{ principalStr: string; profile: UserProfile }>
   >({
     queryKey: [
@@ -307,9 +465,10 @@ export function SearchPage({
       );
     },
     enabled: !!actor && allUserIds.length > 0,
+    staleTime: 0,
   });
 
-  const isLoading = videosLoading || usersLoading;
+  const isLoading = videosLoading || usersLoading || profilesLoading;
 
   // ── Hashtag extraction ────────────────────────────────────────────────────
   const hashtagCounts = useMemo(() => {
@@ -349,10 +508,7 @@ export function SearchPage({
 
   const filteredUsers = useMemo(() => {
     if (!q) return userProfiles.slice(0, 6);
-    return userProfiles.filter(({ profile }) => {
-      const raw = (profile.name ?? "").toLowerCase();
-      return raw.includes(q);
-    });
+    return userProfiles.filter(({ profile }) => userMatchesQuery(profile, q));
   }, [q, userProfiles]);
 
   const filteredVideos = useMemo(() => {
@@ -452,11 +608,11 @@ export function SearchPage({
           <input
             ref={inputRef}
             type="text"
-            data-ocid="search.input"
+            data-ocid="search.search_input"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Search users, videos, hashtags, or live streams"
+            placeholder="Search @username, name..."
             className="w-full pl-9 pr-9 py-2.5 rounded-2xl text-white placeholder:text-white/30 outline-none text-sm"
             style={{
               background: "rgba(255,255,255,0.08)",
@@ -588,6 +744,32 @@ export function SearchPage({
               </div>
             )}
 
+            {/* Suggested creators */}
+            {userProfiles.length > 0 && (
+              <div>
+                <p className="text-white/60 text-xs font-semibold uppercase tracking-widest mb-3">
+                  Suggested Creators
+                </p>
+                <div className="space-y-2">
+                  {userProfiles
+                    .filter(
+                      ({ principalStr }) => principalStr !== selfPrincipalStr,
+                    )
+                    .slice(0, 6)
+                    .map(({ principalStr, profile }, i) => (
+                      <UserCard
+                        key={principalStr}
+                        principalStr={principalStr}
+                        profile={profile}
+                        index={i + 1}
+                        onTap={handleUserTap}
+                        currentUserPrincipalStr={selfPrincipalStr}
+                      />
+                    ))}
+                </div>
+              </div>
+            )}
+
             {/* Trending hashtags */}
             {sortedHashtags.length > 0 && (
               <div>
@@ -604,28 +786,6 @@ export function SearchPage({
                       onTap={handleHashtagTap}
                     />
                   ))}
-                </div>
-              </div>
-            )}
-
-            {/* Suggested creators */}
-            {userProfiles.length > 0 && (
-              <div>
-                <p className="text-white/60 text-xs font-semibold uppercase tracking-widest mb-3">
-                  Suggested Creators
-                </p>
-                <div className="space-y-2">
-                  {userProfiles
-                    .slice(0, 5)
-                    .map(({ principalStr, profile }, i) => (
-                      <UserCard
-                        key={principalStr}
-                        principalStr={principalStr}
-                        profile={profile}
-                        index={i + 1}
-                        onTap={handleUserTap}
-                      />
-                    ))}
                 </div>
               </div>
             )}
@@ -689,7 +849,7 @@ export function SearchPage({
               filteredHashtags.length === 0 ? (
                 <div
                   data-ocid="search.empty_state"
-                  className="flex flex-col items-center justify-center py-16 gap-4"
+                  className="flex flex-col items-center justify-center py-12 gap-4"
                 >
                   <div
                     className="w-14 h-14 rounded-full flex items-center justify-center"
@@ -700,6 +860,11 @@ export function SearchPage({
                   <p className="text-white/40 text-sm text-center">
                     No results for "{query}"
                   </p>
+                  <SuggestedUsers
+                    userProfiles={userProfiles}
+                    currentUserPrincipalStr={selfPrincipalStr}
+                    onTap={handleUserTap}
+                  />
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -718,6 +883,7 @@ export function SearchPage({
                               profile={profile}
                               index={i + 1}
                               onTap={handleUserTap}
+                              currentUserPrincipalStr={selfPrincipalStr}
                             />
                           ))}
                       </div>
@@ -766,12 +932,17 @@ export function SearchPage({
               (filteredUsers.length === 0 ? (
                 <div
                   data-ocid="search.empty_state"
-                  className="flex flex-col items-center justify-center py-16 gap-3"
+                  className="flex flex-col items-center justify-center py-12 gap-3"
                 >
                   <User size={32} className="text-white/20" />
                   <p className="text-white/40 text-sm">
                     No users found for "{query}"
                   </p>
+                  <SuggestedUsers
+                    userProfiles={userProfiles}
+                    currentUserPrincipalStr={selfPrincipalStr}
+                    onTap={handleUserTap}
+                  />
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -782,6 +953,7 @@ export function SearchPage({
                       profile={profile}
                       index={i + 1}
                       onTap={handleUserTap}
+                      currentUserPrincipalStr={selfPrincipalStr}
                     />
                   ))}
                 </div>
