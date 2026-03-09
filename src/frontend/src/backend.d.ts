@@ -29,6 +29,19 @@ export interface Video {
     commentCount: bigint;
     videoUrl: string;
 }
+export interface DirectMessage {
+    id: bigint;
+    createdAt: bigint;
+    text: string;
+    isRead: boolean;
+    toUser: Principal;
+    fromUser: Principal;
+}
+export interface TransformationOutput {
+    status: bigint;
+    body: Uint8Array;
+    headers: Array<http_header>;
+}
 export interface FileMetadata {
     id: bigint;
     creator: Principal;
@@ -77,6 +90,42 @@ export interface VideoInteractionState {
     commentCount: bigint;
     bookmarked: boolean;
 }
+export interface http_header {
+    value: string;
+    name: string;
+}
+export interface http_request_result {
+    status: bigint;
+    body: Uint8Array;
+    headers: Array<http_header>;
+}
+export interface ShoppingItem {
+    productName: string;
+    currency: string;
+    quantity: bigint;
+    priceInCents: bigint;
+    productDescription: string;
+}
+export interface TransformationInput {
+    context: Uint8Array;
+    response: http_request_result;
+}
+export type StripeSessionStatus = {
+    __kind__: "completed";
+    completed: {
+        userPrincipal?: string;
+        response: string;
+    };
+} | {
+    __kind__: "failed";
+    failed: {
+        error: string;
+    };
+};
+export interface StripeConfiguration {
+    allowedCountries: Array<string>;
+    secretKey: string;
+}
 export interface ConversationSummary {
     lastMessageAt: bigint;
     lastMessage: string;
@@ -93,14 +142,6 @@ export interface UserProfile {
     followingCount: bigint;
     lastSeen: bigint;
 }
-export interface DirectMessage {
-    id: bigint;
-    createdAt: bigint;
-    text: string;
-    isRead: boolean;
-    toUser: Principal;
-    fromUser: Principal;
-}
 export enum UserRole {
     admin = "admin",
     user = "user",
@@ -111,6 +152,7 @@ export interface backendInterface {
     addStory(mediaUrl: string, mediaType: string, textOverlay: string): Promise<bigint>;
     addVideo(title: string, caption: string, videoUrl: string, thumbnailUrl: string, hashtags: Array<string>, privacy: string): Promise<bigint>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
+    createCheckoutSession(items: Array<ShoppingItem>, successUrl: string, cancelUrl: string): Promise<string>;
     deleteStory(storyId: bigint): Promise<void>;
     deleteVideo(videoId: bigint): Promise<void>;
     follow(userId: Principal): Promise<void>;
@@ -128,11 +170,13 @@ export interface backendInterface {
     getFollowerCount(userId: Principal): Promise<bigint>;
     getFollowers(userId: Principal): Promise<Array<Principal>>;
     getFollowing(userId: Principal): Promise<Array<Principal>>;
+    getFollowingCount(userId: Principal): Promise<bigint>;
     getMyStories(): Promise<Array<Story>>;
     getOnlineStatus(userIds: Array<Principal>): Promise<Array<boolean>>;
     getPinnedVideos(userId: Principal): Promise<Array<Video>>;
     getStoriesByUser(userId: Principal): Promise<Array<Story>>;
     getStoryViewCount(storyId: bigint): Promise<bigint>;
+    getStripeSessionStatus(sessionId: string): Promise<StripeSessionStatus>;
     getUser(id: Principal): Promise<User | null>;
     getUserBookmarks(): Promise<Array<Video>>;
     getUserByEmail(email: string): Promise<User | null>;
@@ -150,6 +194,7 @@ export interface backendInterface {
     incrementViewCount(videoId: bigint): Promise<void>;
     isCallerAdmin(): Promise<boolean>;
     isFollowing(userId: Principal): Promise<boolean>;
+    isStripeConfigured(): Promise<boolean>;
     likeComment(commentId: bigint): Promise<void>;
     likeVideo(videoId: bigint): Promise<void>;
     markConversationRead(otherUser: Principal): Promise<void>;
@@ -159,8 +204,10 @@ export interface backendInterface {
     registerUser(name: string, email: string, passwordHash: string): Promise<void>;
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
     sendMessage(toUser: Principal, text: string): Promise<bigint>;
+    setStripeConfiguration(config: StripeConfiguration): Promise<void>;
     toggleBookmarkVideo(videoId: bigint): Promise<boolean>;
     toggleLikeVideo(videoId: bigint): Promise<boolean>;
+    transform(input: TransformationInput): Promise<TransformationOutput>;
     unfollow(userId: Principal): Promise<void>;
     unlikeComment(commentId: bigint): Promise<void>;
     unlikeVideo(videoId: bigint): Promise<void>;

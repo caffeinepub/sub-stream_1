@@ -1,5 +1,5 @@
 import { Radio, Video } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LiveStreamCard } from "../components/LiveStreamCard";
 import {
   CATEGORIES,
@@ -7,6 +7,49 @@ import {
   type LiveStream,
   mockLiveStreams,
 } from "../data/liveStreams";
+import {
+  type LiveSignal,
+  getRankedLiveSignals,
+} from "../utils/recommendationEngine";
+
+// ─── useLiveRankings hook ─────────────────────────────────────────────────────
+
+function useLiveRankings() {
+  const [signals, setSignals] = useState<LiveSignal[]>([]);
+
+  useEffect(() => {
+    // Load immediately
+    setSignals(getRankedLiveSignals());
+
+    // Refresh every 15 seconds
+    const interval = setInterval(() => {
+      setSignals(getRankedLiveSignals());
+    }, 15_000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  return signals;
+}
+
+// Convert a LiveSignal to a LiveStream card model
+function signalToStream(signal: LiveSignal): LiveStream {
+  return {
+    id: signal.streamId,
+    hostName: signal.hostName,
+    hostAvatar: "",
+    title: signal.title,
+    category: signal.category,
+    viewerCount: signal.viewerCount,
+    gradientFrom: "from-rose-900",
+    gradientTo: "to-pink-900",
+    isHost: false,
+    giftCount: signal.giftCount,
+    startedAt: signal.startedAt,
+  };
+}
+
+// ─── LiveDiscoveryPage ─────────────────────────────────────────────────────────
 
 interface LiveDiscoveryPageProps {
   onOpenStream: (stream: LiveStream) => void;
@@ -18,11 +61,18 @@ export function LiveDiscoveryPage({
   onGoLive,
 }: LiveDiscoveryPageProps) {
   const [activeCategory, setActiveCategory] = useState<LiveCategory>("All");
+  const liveSignals = useLiveRankings();
+
+  // Convert real signals to LiveStream cards + append mock fallbacks
+  const realStreams: LiveStream[] = liveSignals.map(signalToStream);
+  // Only show mock fallbacks if no real streams exist
+  const allStreams: LiveStream[] =
+    realStreams.length > 0 ? realStreams : mockLiveStreams;
 
   const filtered =
     activeCategory === "All"
-      ? mockLiveStreams
-      : mockLiveStreams.filter((s) => s.category === activeCategory);
+      ? allStreams
+      : allStreams.filter((s) => s.category === activeCategory);
 
   return (
     <div

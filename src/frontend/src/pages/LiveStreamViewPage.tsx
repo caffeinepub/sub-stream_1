@@ -5,6 +5,7 @@ import {
   Mic,
   MicOff,
   Monitor,
+  Power,
   Send,
   Settings,
   Share2,
@@ -28,7 +29,11 @@ import { useAuth } from "../context/AuthContext";
 import { useCoinWallet } from "../context/CoinWalletContext";
 import type { LiveStream } from "../data/liveStreams";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
-import { setLiveStatusStatic } from "../hooks/useLiveStatus";
+import {
+  getLiveStatusStatic,
+  setLiveStatusStatic,
+} from "../hooks/useLiveStatus";
+import { markLiveSignalInactive } from "../utils/recommendationEngine";
 
 // ─── Gift catalog ────────────────────────────────────────────────────────────
 
@@ -707,7 +712,7 @@ export function LiveStreamViewPage({
   onEnd,
   onOpenRecharge,
 }: LiveStreamViewPageProps) {
-  const { actor } = useAuth();
+  const { actor, isAuthenticated } = useAuth();
   const { coinBalance, deductCoins, addDiamonds, recordGift } = useCoinWallet();
   const { identity } = useInternetIdentity();
 
@@ -801,6 +806,17 @@ export function LiveStreamViewPage({
 
   // ── Share toast ─────────────────────────────────────────────────────────────
   const [shareToast, setShareToast] = useState(false);
+
+  // ── Power menu (top-right) ────────────────────────────────────────────────
+  const [powerMenuOpen, setPowerMenuOpen] = useState(false);
+
+  // ── More toolbar menu ─────────────────────────────────────────────────────
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+
+  // ── Comment action sheet ──────────────────────────────────────────────────
+  const [commentActionMsg, setCommentActionMsg] = useState<ChatEntry | null>(
+    null,
+  );
 
   // ── Chat scroll ─────────────────────────────────────────────────────────────
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -1224,10 +1240,12 @@ export function LiveStreamViewPage({
   // ── End stream ──────────────────────────────────────────────────────────────
   const handleEndStream = useCallback(() => {
     setHostControlsOpen(false);
-    // Clear live status in localStorage
+    // Clear live status in localStorage + mark signal inactive
     const myPrincipal = identity?.getPrincipal().toString();
     if (myPrincipal) {
       setLiveStatusStatic(myPrincipal, false);
+      // Mark all signals by this host as inactive so they stop appearing in discovery
+      markLiveSignalInactive(stream.id);
     }
     onEnd?.({
       totalLikes: likeCount,
@@ -1235,7 +1253,7 @@ export function LiveStreamViewPage({
       totalViewers: viewerCount,
       startedAt: startedAtRef.current,
     });
-  }, [onEnd, likeCount, giftCount, viewerCount, identity]);
+  }, [onEnd, likeCount, giftCount, viewerCount, identity, stream.id]);
 
   // ── Pause / resume stream ───────────────────────────────────────────────────
   const handlePauseResumeStream = useCallback(() => {
@@ -1287,6 +1305,22 @@ export function LiveStreamViewPage({
       if (multiplierTimerRef.current) clearTimeout(multiplierTimerRef.current);
     };
   }, []);
+
+  // ── Seed follow state from backend on mount ───────────────────────────────
+  useEffect(() => {
+    if (!actor || !stream.hostPrincipal || !isAuthenticated || isHost) return;
+    void (async () => {
+      try {
+        const { Principal } = await import("@icp-sdk/core/principal");
+        const alreadyFollowing = await actor.isFollowing(
+          Principal.fromText(stream.hostPrincipal!),
+        );
+        setFollowed(alreadyFollowing);
+      } catch {
+        // silent
+      }
+    })();
+  }, [actor, stream.hostPrincipal, isAuthenticated, isHost]);
 
   // ── Derived ─────────────────────────────────────────────────────────────────
   const engagementProgress = Math.min(
@@ -1669,15 +1703,15 @@ export function LiveStreamViewPage({
           </div>
         </div>
 
-        {/* TOP-RIGHT: share + close */}
-        <div className="flex items-center gap-2 flex-shrink-0">
+        {/* TOP-RIGHT: power menu + close */}
+        <div className="flex items-center gap-2 flex-shrink-0 relative">
           <GlassButton
-            onClick={handleShare}
+            onClick={() => setPowerMenuOpen((v) => !v)}
             className="w-9 h-9 rounded-full"
-            aria-label="Share stream"
-            data-ocid="livestream.share_top_button"
+            aria-label="Stream options"
+            data-ocid="livestream.power_menu_button"
           >
-            <Share2 size={16} stroke="white" strokeWidth={2} />
+            <Power size={16} stroke="white" strokeWidth={2} />
           </GlassButton>
           <GlassButton
             onClick={onBack}
@@ -1687,6 +1721,76 @@ export function LiveStreamViewPage({
           >
             <X size={18} stroke="white" strokeWidth={2.5} />
           </GlassButton>
+
+          {/* Power dropdown menu */}
+          <AnimatePresence>
+            {powerMenuOpen && (
+              <>
+                {/* Backdrop to close */}
+                {/* biome-ignore lint/a11y/useKeyWithClickEvents: backdrop dismiss */}
+                <div
+                  className="fixed inset-0"
+                  style={{ zIndex: 59 }}
+                  onClick={() => setPowerMenuOpen(false)}
+                />
+                <motion.div
+                  data-ocid="livestream.power_menu_dropdown"
+                  initial={{ opacity: 0, scale: 0.92, y: -6 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.92, y: -6 }}
+                  transition={{ duration: 0.15 }}
+                  className="absolute top-11 right-0 rounded-2xl overflow-hidden"
+                  style={{
+                    zIndex: 60,
+                    background: "rgba(18,18,18,0.97)",
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    backdropFilter: "blur(16px)",
+                    WebkitBackdropFilter: "blur(16px)",
+                    minWidth: 168,
+                  }}
+                >
+                  {isHost && (
+                    <button
+                      type="button"
+                      data-ocid="livestream.end_live_menu_button"
+                      onClick={() => {
+                        setPowerMenuOpen(false);
+                        handleEndStream();
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-3.5 text-sm font-medium text-left hover:bg-white/5 transition-colors"
+                      style={{ color: "#ff0050" }}
+                    >
+                      <span>⏹</span> End Live
+                    </button>
+                  )}
+                  {isHost && (
+                    <button
+                      type="button"
+                      data-ocid="livestream.stream_settings_menu_button"
+                      onClick={() => {
+                        setPowerMenuOpen(false);
+                        setLiveSettingsOpen(true);
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-3.5 text-sm font-medium text-left hover:bg-white/5 transition-colors"
+                      style={{ color: "rgba(255,255,255,0.85)" }}
+                    >
+                      <span>⚙️</span> Stream Settings
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    data-ocid="livestream.live_info_menu_button"
+                    onClick={() => setPowerMenuOpen(false)}
+                    className="w-full flex items-center gap-3 px-4 py-3.5 text-sm font-medium text-left hover:bg-white/5 transition-colors"
+                    style={{ color: "rgba(255,255,255,0.85)" }}
+                  >
+                    <span>ℹ️</span> Live Info · {formatViewers(viewerCount)}{" "}
+                    viewers
+                  </button>
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
         </div>
       </div>
 
@@ -1920,100 +2024,29 @@ export function LiveStreamViewPage({
         </div>
       )}
 
-      {/* CENTER-RIGHT — like/gift/share */}
+      {/* Floating hearts — anchored bottom-right area */}
       <div
-        className="absolute right-3 flex flex-col items-center gap-5"
-        style={{ top: "50%", transform: "translateY(-50%)", zIndex: 20 }}
+        className="absolute pointer-events-none"
+        style={{ bottom: "9rem", right: "1.25rem", zIndex: 20, width: 64 }}
       >
-        {/* Like */}
-        <div className="relative flex flex-col items-center">
-          <button
-            type="button"
-            data-ocid="livestream.like_button"
-            onClick={handleLike}
-            className="flex flex-col items-center gap-1 group active:scale-90 transition-transform duration-100"
-            aria-label="Like"
-          >
-            <div className="w-10 h-10 flex items-center justify-center">
-              <Heart
-                size={28}
-                fill="#ff0050"
-                stroke="none"
-                className="drop-shadow-lg"
-              />
-            </div>
-            <span
-              className="text-white text-[11px] font-semibold"
-              style={{ textShadow: "0 1px 4px rgba(0,0,0,0.9)" }}
-            >
-              {formatViewers(likeCount)}
-            </span>
-          </button>
-          {/* Floating hearts */}
-          <div className="absolute bottom-12 left-1/2 -translate-x-1/2 pointer-events-none w-16">
-            {floatingHearts.map((h) => (
-              <FloatingHeartEl
-                key={h.id}
-                id={h.id}
-                offsetX={h.offsetX}
-                delay={h.delay}
-                onDone={handleHeartGone}
-              />
-            ))}
-          </div>
-        </div>
-
-        {/* Gift */}
-        <button
-          type="button"
-          data-ocid="livestream.gift_button"
-          onClick={() => setGiftSheetOpen(true)}
-          className="flex flex-col items-center gap-1 group active:scale-90 transition-transform duration-100"
-          aria-label="Send gift"
-        >
-          <div className="w-10 h-10 flex items-center justify-center">
-            <span className="text-2xl drop-shadow-lg">🎁</span>
-          </div>
-          <span
-            className="text-white text-[11px] font-semibold"
-            style={{ textShadow: "0 1px 4px rgba(0,0,0,0.9)" }}
-          >
-            {giftCount > 0 ? formatViewers(giftCount) : "Gift"}
-          </span>
-        </button>
-
-        {/* Share */}
-        <button
-          type="button"
-          data-ocid="livestream.share_right_button"
-          onClick={handleShare}
-          className="flex flex-col items-center gap-1 group active:scale-90 transition-transform duration-100"
-          aria-label="Share"
-        >
-          <div className="w-10 h-10 flex items-center justify-center">
-            <Share2
-              size={24}
-              stroke="white"
-              strokeWidth={2}
-              className="drop-shadow-lg"
-            />
-          </div>
-          <span
-            className="text-white text-[11px] font-semibold"
-            style={{ textShadow: "0 1px 4px rgba(0,0,0,0.9)" }}
-          >
-            Share
-          </span>
-        </button>
+        {floatingHearts.map((h) => (
+          <FloatingHeartEl
+            key={h.id}
+            id={h.id}
+            offsetX={h.offsetX}
+            delay={h.delay}
+            onDone={handleHeartGone}
+          />
+        ))}
       </div>
 
       {/* BOTTOM-LEFT — chat messages */}
       <div
         className="absolute flex flex-col justify-end overflow-hidden"
         style={{
-          bottom: "7.5rem",
+          bottom: "8.5rem",
           left: "0.75rem",
-          maxWidth: "65%",
+          maxWidth: "72%",
           maxHeight: "45vh",
           zIndex: 20,
         }}
@@ -2031,199 +2064,441 @@ export function LiveStreamViewPage({
             style={{ maxHeight: "45vh" }}
           >
             {chatMessages.map((msg) => (
-              <LiveChatMessage
+              <button
                 key={msg.id}
-                username={msg.username}
-                message={msg.message}
-                avatarUrl={msg.avatarUrl}
-                isGift={msg.isGift}
-                giftEmoji={msg.giftEmoji}
-              />
+                type="button"
+                data-ocid="livestream.chat_message_button"
+                onClick={() => setCommentActionMsg(msg)}
+                className="text-left w-full transition-opacity active:opacity-70"
+              >
+                <LiveChatMessage
+                  username={msg.username}
+                  message={msg.message}
+                  avatarUrl={msg.avatarUrl}
+                  isGift={msg.isGift}
+                  giftEmoji={msg.giftEmoji}
+                />
+              </button>
             ))}
             <div ref={chatEndRef} />
           </div>
         )}
       </div>
 
-      {/* BOTTOM-RIGHT — host controls */}
-      {isHost && (
-        <div
-          className="absolute flex flex-col items-center gap-3"
-          style={{ bottom: "7.5rem", right: "0.75rem", zIndex: 20 }}
-        >
-          <button
-            type="button"
-            data-ocid="livestream.mic_toggle"
-            onClick={() => setMicMuted((v) => !v)}
-            className="w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-90"
-            style={{
-              background: micMuted ? "rgba(255,0,80,0.3)" : "rgba(0,0,0,0.5)",
-              backdropFilter: "blur(8px)",
-              border: micMuted
-                ? "1px solid rgba(255,0,80,0.5)"
-                : "1px solid rgba(255,255,255,0.15)",
-            }}
-            aria-label={micMuted ? "Unmute microphone" : "Mute microphone"}
-          >
-            {micMuted ? (
-              <MicOff size={18} stroke="#ff6b6b" strokeWidth={2} />
-            ) : (
-              <Mic size={18} stroke="white" strokeWidth={2} />
-            )}
-          </button>
-
-          <button
-            type="button"
-            data-ocid="livestream.host_settings_button"
-            onClick={() => setHostControlsOpen(true)}
-            className="w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-90"
-            style={{
-              background: "rgba(0,0,0,0.5)",
-              backdropFilter: "blur(8px)",
-              border: "1px solid rgba(255,255,255,0.15)",
-            }}
-            aria-label="Host settings"
-          >
-            <Settings size={18} stroke="white" strokeWidth={2} />
-          </button>
-
-          <button
-            type="button"
-            data-ocid="livestream.invite_button"
-            onClick={() => setInviteSheetOpen(true)}
-            className="w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-90"
-            style={{
-              background: "rgba(0,0,0,0.5)",
-              backdropFilter: "blur(8px)",
-              border: "1px solid rgba(255,255,255,0.15)",
-            }}
-            aria-label="Invite guest"
-          >
-            <Users size={18} stroke="white" strokeWidth={2} />
-          </button>
-
-          <button
-            type="button"
-            data-ocid="livestream.end_live_button"
-            onClick={handleEndStream}
-            className="w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-90"
-            style={{
-              background: "rgba(255,0,80,0.25)",
-              backdropFilter: "blur(8px)",
-              border: "1.5px solid rgba(255,0,80,0.5)",
-            }}
-            aria-label="End live"
-          >
-            <span className="text-base">🛑</span>
-          </button>
-        </div>
-      )}
-
-      {/* BOTTOM-CENTER — message input */}
+      {/* BOTTOM CONTROLS AREA */}
       <div
-        className="absolute flex items-center gap-2"
+        className="absolute bottom-0 left-0 right-0"
         style={{
-          bottom: "1.25rem",
-          left: "0.75rem",
-          right: isHost ? "3.75rem" : "0.75rem",
-          zIndex: 20,
+          zIndex: 40,
+          paddingBottom: "env(safe-area-inset-bottom, 16px)",
         }}
       >
-        {/* Emoji */}
-        <div className="relative flex-shrink-0">
-          <button
-            type="button"
-            data-ocid="livestream.emoji_button"
-            onClick={() => setEmojiPickerOpen((v) => !v)}
-            className="w-9 h-9 rounded-full flex items-center justify-center transition-all active:scale-90"
-            style={{
-              background: "rgba(0,0,0,0.5)",
-              backdropFilter: "blur(8px)",
-              border: "1px solid rgba(255,255,255,0.15)",
-            }}
-            aria-label="Emoji"
-          >
-            <Smile size={17} stroke="white" strokeWidth={2} />
-          </button>
-
-          <AnimatePresence>
-            {emojiPickerOpen && (
-              <motion.div
-                data-ocid="livestream.emoji_popover"
-                className="absolute bottom-12 left-0 flex flex-wrap gap-1.5 p-3 rounded-2xl"
-                style={{
-                  zIndex: 30,
-                  background: "rgba(20,20,20,0.95)",
-                  backdropFilter: "blur(12px)",
-                  border: "1px solid rgba(255,255,255,0.1)",
-                  width: "200px",
-                }}
-                initial={{ opacity: 0, y: 8, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 8, scale: 0.95 }}
-                transition={{ duration: 0.18 }}
-              >
-                {EMOJI_PICKER.map((emoji) => (
-                  <button
-                    key={emoji}
-                    type="button"
-                    onClick={() => {
-                      setChatInput((prev) => prev + emoji);
-                      setEmojiPickerOpen(false);
-                    }}
-                    className="w-8 h-8 flex items-center justify-center text-lg rounded-lg hover:bg-white/10 transition-colors"
-                    aria-label={`Insert ${emoji}`}
-                  >
-                    {emoji}
-                  </button>
-                ))}
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-
-        {/* Input */}
+        {/* Horizontal icon toolbar — above the message input */}
         <div
-          className="flex-1 flex items-center rounded-full overflow-hidden"
-          style={{
-            background: "rgba(0,0,0,0.5)",
-            backdropFilter: "blur(8px)",
-            WebkitBackdropFilter: "blur(8px)",
-            border: "1px solid rgba(255,255,255,0.15)",
-          }}
+          className="flex items-center gap-1.5 px-3 pb-2 pt-1 overflow-x-auto"
+          style={{ scrollbarWidth: "none" }}
         >
-          <input
-            data-ocid="livestream.chat_input"
-            type="text"
-            placeholder="Type a message…"
-            value={chatInput}
-            onChange={(e) => setChatInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void handleSendMessage();
-            }}
-            className="flex-1 bg-transparent text-white text-sm px-3 py-2.5 outline-none placeholder:text-white/40"
-            style={{ fontSize: "16px" }}
+          {/* Like pill */}
+          <ToolbarPill
+            icon="❤️"
+            label={formatViewers(likeCount)}
+            onClick={handleLike}
+            ocid="livestream.like_button"
+          />
+          {/* Gift */}
+          <ToolbarPill
+            icon="🎁"
+            label={giftCount > 0 ? formatViewers(giftCount) : "Gift"}
+            onClick={() => setGiftSheetOpen(true)}
+            ocid="livestream.gift_button"
+          />
+          {/* Co-host (host only) */}
+          {isHost && (
+            <ToolbarPill
+              icon="👥"
+              label="Co-host"
+              onClick={() => setInviteSheetOpen(true)}
+              ocid="livestream.cohost_button"
+            />
+          )}
+          {/* Share */}
+          <ToolbarPill
+            icon="🔗"
+            label="Share"
+            onClick={handleShare}
+            ocid="livestream.share_toolbar_button"
+          />
+          {/* Effects placeholder */}
+          <ToolbarPill
+            icon="✨"
+            label="Effects"
+            onClick={() => {}}
+            ocid="livestream.effects_button"
+          />
+          {/* More */}
+          <ToolbarPill
+            icon="···"
+            label="More"
+            onClick={() => setMoreMenuOpen(true)}
+            ocid="livestream.more_toolbar_button"
           />
         </div>
 
-        {/* Send */}
-        <button
-          type="button"
-          data-ocid="livestream.chat_send_button"
-          onClick={() => void handleSendMessage()}
-          className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 transition-all active:scale-90"
-          style={{
-            background: chatInput.trim()
-              ? "linear-gradient(135deg, #ff0050, #ff6b35)"
-              : "rgba(255,255,255,0.1)",
-          }}
-          aria-label="Send message"
-        >
-          <Send size={15} stroke="white" strokeWidth={2} />
-        </button>
+        {/* Message input row */}
+        <div className="flex items-center gap-2 px-3 pb-3">
+          {/* Emoji */}
+          <div className="relative flex-shrink-0">
+            <button
+              type="button"
+              data-ocid="livestream.emoji_button"
+              onClick={() => setEmojiPickerOpen((v) => !v)}
+              className="w-9 h-9 rounded-full flex items-center justify-center transition-all active:scale-90"
+              style={{
+                background: "rgba(0,0,0,0.5)",
+                backdropFilter: "blur(8px)",
+                border: "1px solid rgba(255,255,255,0.15)",
+              }}
+              aria-label="Emoji"
+            >
+              <Smile size={17} stroke="white" strokeWidth={2} />
+            </button>
+
+            <AnimatePresence>
+              {emojiPickerOpen && (
+                <motion.div
+                  data-ocid="livestream.emoji_popover"
+                  className="absolute bottom-12 left-0 flex flex-wrap gap-1.5 p-3 rounded-2xl"
+                  style={{
+                    zIndex: 50,
+                    background: "rgba(20,20,20,0.95)",
+                    backdropFilter: "blur(12px)",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    width: "200px",
+                  }}
+                  initial={{ opacity: 0, y: 8, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 8, scale: 0.95 }}
+                  transition={{ duration: 0.18 }}
+                >
+                  {EMOJI_PICKER.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      onClick={() => {
+                        setChatInput((prev) => prev + emoji);
+                        setEmojiPickerOpen(false);
+                      }}
+                      className="w-8 h-8 flex items-center justify-center text-lg rounded-lg hover:bg-white/10 transition-colors"
+                      aria-label={`Insert ${emoji}`}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* Input */}
+          <div
+            className="flex-1 flex items-center rounded-full overflow-hidden"
+            style={{
+              background: "rgba(0,0,0,0.5)",
+              backdropFilter: "blur(8px)",
+              WebkitBackdropFilter: "blur(8px)",
+              border: "1px solid rgba(255,255,255,0.15)",
+            }}
+          >
+            <input
+              data-ocid="livestream.chat_input"
+              type="text"
+              placeholder="Type a message…"
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleSendMessage();
+              }}
+              className="flex-1 bg-transparent text-white text-sm px-3 py-2.5 outline-none placeholder:text-white/40"
+              style={{ fontSize: "16px" }}
+            />
+          </div>
+
+          {/* Send */}
+          <button
+            type="button"
+            data-ocid="livestream.chat_send_button"
+            onClick={() => void handleSendMessage()}
+            className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 transition-all active:scale-90"
+            style={{
+              background: chatInput.trim()
+                ? "linear-gradient(135deg, #ff0050, #ff6b35)"
+                : "rgba(255,255,255,0.1)",
+            }}
+            aria-label="Send message"
+          >
+            <Send size={15} stroke="white" strokeWidth={2} />
+          </button>
+        </div>
       </div>
 
       {/* ═══ SHEETS / MODALS (z-70+) ═══ */}
+
+      {/* MORE MENU SHEET */}
+      <AnimatePresence>
+        {moreMenuOpen && (
+          <>
+            <motion.div
+              className="fixed inset-0"
+              style={{ background: "rgba(0,0,0,0.6)", zIndex: 70 }}
+              role="presentation"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setMoreMenuOpen(false)}
+            />
+            <motion.div
+              data-ocid="livestream.more_menu_sheet"
+              className="fixed bottom-0 left-0 right-0 rounded-t-3xl pb-10 overflow-hidden"
+              style={{
+                zIndex: 80,
+                background: "linear-gradient(to bottom, #1a1a1a, #111)",
+              }}
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 30, stiffness: 300 }}
+            >
+              <div className="flex justify-center pt-3 pb-2">
+                <div className="w-10 h-1 rounded-full bg-white/20" />
+              </div>
+              <div className="px-5 pb-3 border-b border-white/5">
+                <h3 className="text-white font-bold text-base">More Options</h3>
+              </div>
+              <div className="px-4 pt-3 space-y-2">
+                <button
+                  type="button"
+                  data-ocid="livestream.more_switch_camera_button"
+                  onClick={() => {
+                    setMoreMenuOpen(false);
+                    void switchCameraFacing();
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-medium text-white transition-all active:scale-[0.98]"
+                  style={{ background: "rgba(255,255,255,0.05)" }}
+                >
+                  <SwitchCamera
+                    size={18}
+                    stroke="rgba(255,255,255,0.7)"
+                    strokeWidth={2}
+                  />
+                  Switch Camera
+                </button>
+                <button
+                  type="button"
+                  data-ocid="livestream.more_gift_box_button"
+                  onClick={() => {
+                    setMoreMenuOpen(false);
+                    setGiftSheetOpen(true);
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-medium text-white transition-all active:scale-[0.98]"
+                  style={{ background: "rgba(255,255,255,0.05)" }}
+                >
+                  <span className="text-base">🎁</span>
+                  Gift Box
+                </button>
+                <button
+                  type="button"
+                  data-ocid="livestream.more_mic_button"
+                  onClick={() => {
+                    setMicMuted((v) => !v);
+                    setMoreMenuOpen(false);
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-medium transition-all active:scale-[0.98]"
+                  style={{
+                    background: micMuted
+                      ? "rgba(255,0,80,0.1)"
+                      : "rgba(255,255,255,0.05)",
+                    border: micMuted ? "1px solid rgba(255,0,80,0.25)" : "none",
+                    color: micMuted ? "#ff6b6b" : "white",
+                  }}
+                >
+                  {micMuted ? (
+                    <MicOff size={18} stroke="#ff6b6b" strokeWidth={2} />
+                  ) : (
+                    <Mic
+                      size={18}
+                      stroke="rgba(255,255,255,0.7)"
+                      strokeWidth={2}
+                    />
+                  )}
+                  {micMuted ? "Unmute Microphone" : "Mute Microphone"}
+                </button>
+                {isHost && (
+                  <>
+                    <button
+                      type="button"
+                      data-ocid="livestream.more_end_live_button"
+                      onClick={() => {
+                        setMoreMenuOpen(false);
+                        handleEndStream();
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-bold transition-all active:scale-[0.98]"
+                      style={{
+                        background: "rgba(255,0,80,0.12)",
+                        border: "1px solid rgba(255,0,80,0.3)",
+                        color: "#ff4466",
+                      }}
+                    >
+                      <span className="text-base">⏹</span> End Live
+                    </button>
+                    <button
+                      type="button"
+                      data-ocid="livestream.more_stream_settings_button"
+                      onClick={() => {
+                        setMoreMenuOpen(false);
+                        setLiveSettingsOpen(true);
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-medium text-white transition-all active:scale-[0.98]"
+                      style={{ background: "rgba(255,255,255,0.05)" }}
+                    >
+                      <Settings
+                        size={18}
+                        stroke="rgba(255,255,255,0.7)"
+                        strokeWidth={2}
+                      />
+                      Stream Settings
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  data-ocid="livestream.more_cancel_button"
+                  onClick={() => setMoreMenuOpen(false)}
+                  className="w-full py-4 rounded-2xl text-sm font-semibold mt-1"
+                  style={{
+                    color: "rgba(255,255,255,0.5)",
+                    background: "rgba(255,255,255,0.04)",
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* COMMENT ACTION SHEET */}
+      <AnimatePresence>
+        {commentActionMsg && (
+          <>
+            <motion.div
+              className="fixed inset-0"
+              style={{ background: "rgba(0,0,0,0.6)", zIndex: 70 }}
+              role="presentation"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setCommentActionMsg(null)}
+            />
+            <motion.div
+              data-ocid="livestream.comment_action_sheet"
+              className="fixed bottom-0 left-0 right-0 rounded-t-3xl pb-10 overflow-hidden"
+              style={{
+                zIndex: 80,
+                background: "linear-gradient(to bottom, #1a1a1a, #111)",
+              }}
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 30, stiffness: 300 }}
+            >
+              <div className="flex justify-center pt-3 pb-2">
+                <div className="w-10 h-1 rounded-full bg-white/20" />
+              </div>
+              <div className="px-5 pb-3 border-b border-white/5">
+                <p className="text-white font-bold text-sm truncate">
+                  @{commentActionMsg.username}
+                </p>
+                {commentActionMsg.message && (
+                  <p className="text-white/50 text-xs mt-0.5 truncate">
+                    {commentActionMsg.message}
+                  </p>
+                )}
+              </div>
+              <div className="px-4 pt-3 space-y-2">
+                {[
+                  {
+                    icon: "🔇",
+                    label: "Mute user",
+                    ocid: "livestream.comment_mute_button",
+                    action: () => {
+                      setCommentActionMsg(null);
+                    },
+                  },
+                  {
+                    icon: "🛡️",
+                    label: "Make moderator",
+                    ocid: "livestream.comment_mod_button",
+                    action: () => {
+                      setCommentActionMsg(null);
+                    },
+                  },
+                  {
+                    icon: "🗑️",
+                    label: "Remove comment",
+                    ocid: "livestream.comment_remove_button",
+                    action: () => {
+                      setChatMessages((prev) =>
+                        prev.filter((m) => m.id !== commentActionMsg.id),
+                      );
+                      setCommentActionMsg(null);
+                    },
+                  },
+                  {
+                    icon: "🚫",
+                    label: "Block user",
+                    ocid: "livestream.comment_block_button",
+                    action: () => {
+                      setCommentActionMsg(null);
+                    },
+                    danger: true,
+                  },
+                ].map(({ icon, label, ocid, action, danger }) => (
+                  <button
+                    key={label}
+                    type="button"
+                    data-ocid={ocid}
+                    onClick={action}
+                    className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-medium transition-all active:scale-[0.98]"
+                    style={{
+                      background: danger
+                        ? "rgba(255,0,80,0.06)"
+                        : "rgba(255,255,255,0.04)",
+                      border: danger ? "1px solid rgba(255,0,80,0.15)" : "none",
+                      color: danger ? "#ff0050" : "rgba(255,255,255,0.85)",
+                    }}
+                  >
+                    <span className="text-base">{icon}</span>
+                    {label}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  data-ocid="livestream.comment_action_cancel_button"
+                  onClick={() => setCommentActionMsg(null)}
+                  className="w-full py-4 rounded-2xl text-sm font-semibold mt-1"
+                  style={{
+                    color: "rgba(255,255,255,0.5)",
+                    background: "rgba(255,255,255,0.04)",
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       {/* GIFT SHEET */}
       <AnimatePresence>
@@ -2835,63 +3110,71 @@ export function LiveStreamViewPage({
                     />
                     <p className="text-white/40 text-sm">Loading creators…</p>
                   </div>
-                ) : allUsers.length === 0 ? (
-                  <div className="flex flex-col items-center py-8 gap-3">
-                    <Users
-                      size={32}
-                      stroke="rgba(255,255,255,0.2)"
-                      strokeWidth={1.5}
-                    />
-                    <p
-                      data-ocid="battle.empty_state"
-                      className="text-white/40 text-sm"
-                    >
-                      No creators available to battle
-                    </p>
-                  </div>
                 ) : (
-                  <div
-                    className="overflow-y-auto no-scrollbar flex flex-col gap-2"
-                    style={{ maxHeight: "45vh" }}
-                  >
-                    {allUsers.map((user, idx) => (
-                      <BattleChallengeSentRow
-                        key={user.principal}
-                        user={user}
-                        idx={idx}
-                        streamId={stream.id}
-                        onChallenge={() => {
-                          // Send a BATTLE_INVITE DM so the poller detects it
-                          if (actor) {
-                            void (async () => {
-                              try {
-                                const { Principal } = await import(
-                                  "@icp-sdk/core/principal"
-                                );
-                                await actor.sendMessage(
-                                  Principal.fromText(user.principal),
-                                  `BATTLE_INVITE:${stream.id}`,
-                                );
-                              } catch {
-                                // silent
+                  (() => {
+                    // Only show creators who are currently live
+                    const liveUsers = allUsers.filter((u) =>
+                      getLiveStatusStatic(u.principal),
+                    );
+                    return liveUsers.length === 0 ? (
+                      <div className="flex flex-col items-center py-8 gap-3">
+                        <Users
+                          size={32}
+                          stroke="rgba(255,255,255,0.2)"
+                          strokeWidth={1.5}
+                        />
+                        <p
+                          data-ocid="battle.empty_state"
+                          className="text-white/40 text-sm text-center"
+                        >
+                          No creators are live right now to battle
+                        </p>
+                      </div>
+                    ) : (
+                      <div
+                        className="overflow-y-auto no-scrollbar flex flex-col gap-2"
+                        style={{ maxHeight: "45vh" }}
+                      >
+                        {liveUsers.map((user, idx) => (
+                          <BattleChallengeSentRow
+                            key={user.principal}
+                            user={user}
+                            idx={idx}
+                            streamId={stream.id}
+                            onChallenge={() => {
+                              // Send a BATTLE_INVITE DM so the poller detects it
+                              if (actor) {
+                                void (async () => {
+                                  try {
+                                    const { Principal } = await import(
+                                      "@icp-sdk/core/principal"
+                                    );
+                                    await actor.sendMessage(
+                                      Principal.fromText(user.principal),
+                                      `BATTLE_INVITE:${stream.id}`,
+                                    );
+                                  } catch {
+                                    // silent
+                                  }
+                                })();
                               }
-                            })();
-                          }
-                          setLocalStream((prev) => ({
-                            ...prev,
-                            battleMode: true,
-                            battleOpponentName: user.name,
-                          }));
-                          setBattleTimer(BATTLE_DURATION_SEC);
-                          setBattleLeftScore(0);
-                          setBattleRightScore(0);
-                          setBattleEnded(false);
-                          setTopSupporters({ left: [], right: [] });
-                          setBattleChallengeOpen(false);
-                        }}
-                      />
-                    ))}
-                  </div>
+                              setLocalStream((prev) => ({
+                                ...prev,
+                                battleMode: true,
+                                battleOpponentName: user.name,
+                              }));
+                              setBattleTimer(BATTLE_DURATION_SEC);
+                              setBattleLeftScore(0);
+                              setBattleRightScore(0);
+                              setBattleEnded(false);
+                              setTopSupporters({ left: [], right: [] });
+                              setBattleChallengeOpen(false);
+                            }}
+                          />
+                        ))}
+                      </div>
+                    );
+                  })()
                 )}
               </div>
             </motion.div>
@@ -3074,6 +3357,41 @@ export function LiveStreamViewPage({
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+// ─── Toolbar Pill ─────────────────────────────────────────────────────────────
+
+function ToolbarPill({
+  icon,
+  label,
+  onClick,
+  ocid,
+}: {
+  icon: string;
+  label: string;
+  onClick: () => void;
+  ocid?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      data-ocid={ocid}
+      className="flex-shrink-0 flex flex-col items-center gap-0.5 px-3 py-2 rounded-2xl transition-all active:scale-90"
+      style={{
+        background: "rgba(255,255,255,0.1)",
+        backdropFilter: "blur(8px)",
+        WebkitBackdropFilter: "blur(8px)",
+        border: "1px solid rgba(255,255,255,0.12)",
+        minWidth: 52,
+      }}
+    >
+      <span className="text-lg leading-none">{icon}</span>
+      <span className="text-white/70 text-[10px] font-medium leading-tight">
+        {label}
+      </span>
+    </button>
   );
 }
 

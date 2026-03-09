@@ -2,12 +2,13 @@ import { Toaster } from "@/components/ui/sonner";
 import { Zap } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
+import { BattleCountdown } from "./components/BattleCountdown";
 import { BattleInviteNotification } from "./components/BattleInviteNotification";
 import { BottomNav, type BottomNavScreen } from "./components/BottomNav";
 import { CoHostInviteNotification } from "./components/CoHostInviteNotification";
 import { CreateMenu } from "./components/CreateMenu";
 import { LiveEndScreen, type LiveEndStats } from "./components/LiveEndScreen";
-import { TopNav } from "./components/TopNav";
+import { TopNav, type TopNavTab } from "./components/TopNav";
 import { VideoFeed } from "./components/VideoFeed";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { CoinWalletProvider } from "./context/CoinWalletContext";
@@ -18,8 +19,10 @@ import {
 import { WalletProvider } from "./context/WalletContext";
 import type { LiveStream } from "./data/liveStreams";
 import { useBattleInvitePoller } from "./hooks/useBattleInvitePoller";
+import { useInternetIdentity } from "./hooks/useInternetIdentity";
 import { useLiveFollowedPoller } from "./hooks/useLiveFollowedPoller";
 import { useLiveInvitePoller } from "./hooks/useLiveInvitePoller";
+import { getLiveStatusStatic } from "./hooks/useLiveStatus";
 import { BlockedUsersPage } from "./pages/BlockedUsersPage";
 import { CoinRechargePage } from "./pages/CoinRechargePage";
 import { CreateFlowPage } from "./pages/CreateFlowPage";
@@ -145,8 +148,11 @@ function AppShell() {
     userProfile,
     actor,
   } = useAuth();
+  const { identity } = useInternetIdentity();
+  const myPrincipal = identity?.getPrincipal().toString() ?? "";
   const { unreadCount } = useNotifications();
   const [screen, setScreen] = useState<Screen>("feed");
+  const [feedTab, setFeedTab] = useState<TopNavTab>("For You");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedStream, setSelectedStream] = useState<LiveStream | null>(null);
   const [isHostStream, setIsHostStream] = useState(false);
@@ -169,6 +175,12 @@ function AppShell() {
     fromPrincipal: string;
     streamId: string;
   } | null>(null);
+
+  // Battle countdown state
+  const [showBattleCountdown, setShowBattleCountdown] = useState(false);
+  const [pendingBattleStream, setPendingBattleStream] =
+    useState<LiveStream | null>(null);
+
   // Track where payment-settings was opened from so back button is correct
   const [paymentSettingsOrigin, setPaymentSettingsOrigin] =
     useState<Screen>("settings");
@@ -201,9 +213,10 @@ function AppShell() {
     },
   });
 
-  // Poll for battle invites when not already in a stream
+  // Poll for battle invites — only show when recipient is currently live
   useBattleInvitePoller({
     enabled: isAuthenticated && effectiveScreenForPoller !== "live-view",
+    isCurrentlyLive: myPrincipal !== "" && getLiveStatusStatic(myPrincipal),
     onInviteReceived: (invite) => {
       setPendingBattleInvite({
         fromName: invite.fromName,
@@ -363,13 +376,31 @@ function AppShell() {
             battleMode: true,
             battleOpponentName: invite.fromName,
           };
-          setSelectedStream(battleStream);
-          setIsHostStream(true);
-          setLiveMediaStream(null);
-          setScreen("live-view");
+          // Store the stream and show countdown before navigating
+          setPendingBattleStream(battleStream);
+          setShowBattleCountdown(true);
         }}
         onDecline={() => setPendingBattleInvite(null)}
       />
+
+      {/* Battle countdown overlay — shown before switching to split-screen */}
+      <AnimatePresence>
+        {showBattleCountdown && (
+          <BattleCountdown
+            key="battle-countdown"
+            onComplete={() => {
+              setShowBattleCountdown(false);
+              if (pendingBattleStream) {
+                setSelectedStream(pendingBattleStream);
+                setIsHostStream(true);
+                setLiveMediaStream(null);
+                setScreen("live-view");
+                setPendingBattleStream(null);
+              }
+            }}
+          />
+        )}
+      </AnimatePresence>
 
       <AnimatePresence mode="wait">
         {/* Create Flow (3-step: camera → editor → publish) */}
@@ -632,11 +663,20 @@ function AppShell() {
                 setScreen("user-profile");
               }}
               onJoinLiveStream={handleJoinLiveFromProfile}
+              feedTab={feedTab}
             />
             <TopNav
               onNavigate={(tab) => {
                 if (tab === "LIVE") setScreen("live");
               }}
+              onTabChange={(tab) => {
+                if (tab === "LIVE") {
+                  setScreen("live");
+                } else {
+                  setFeedTab(tab);
+                }
+              }}
+              activeTab={feedTab}
               onSearch={() => setScreen("search")}
               searchActive={screen === "search"}
               onNotifications={() => setScreen("notifications")}

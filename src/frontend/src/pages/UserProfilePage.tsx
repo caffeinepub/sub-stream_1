@@ -118,7 +118,7 @@ export function UserProfilePage({
       return actor.isFollowing(principal);
     },
     enabled: !!actor && !!principal && isAuthenticated,
-    staleTime: 30_000,
+    staleTime: 0,
   });
 
   // Fetch whether they follow me (for "Friends" detection)
@@ -148,7 +148,18 @@ export function UserProfilePage({
       return actor.getFollowerCount(principal);
     },
     enabled: !!actor && !!principal,
-    staleTime: 30_000,
+    staleTime: 0,
+  });
+
+  // Fetch following count (authoritative live count)
+  const { data: followingCount = BigInt(0) } = useQuery({
+    queryKey: ["followingCount", principalStr],
+    queryFn: async () => {
+      if (!actor || !principal) return BigInt(0);
+      return actor.getFollowingCount(principal);
+    },
+    enabled: !!actor && !!principal,
+    staleTime: 0,
   });
 
   // Is this the current user's own profile?
@@ -171,14 +182,8 @@ export function UserProfilePage({
       await queryClient.cancelQueries({
         queryKey: ["isFollowing", principalStr],
       });
-      await queryClient.cancelQueries({
-        queryKey: ["followerCount", principalStr],
-      });
+      // Optimistically toggle only the boolean follow state (safe, no count math)
       queryClient.setQueryData(["isFollowing", principalStr], !isFollowing);
-      queryClient.setQueryData(
-        ["followerCount", principalStr],
-        (prev: bigint) => (isFollowing ? prev - BigInt(1) : prev + BigInt(1)),
-      );
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({
@@ -186,6 +191,9 @@ export function UserProfilePage({
       });
       void queryClient.invalidateQueries({
         queryKey: ["followerCount", principalStr],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["followingCount", principalStr],
       });
       void queryClient.invalidateQueries({
         queryKey: ["userProfile", principalStr],
@@ -302,7 +310,6 @@ export function UserProfilePage({
   const username = profile ? getUsername(profile.name) : "";
   const avatarUrl = profile?.avatarUrl ?? "";
   const bio = profile?.bio ?? "";
-  const followingCount = profile?.followingCount ?? BigInt(0);
   const videoCount = BigInt(videos.length);
 
   return (

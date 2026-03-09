@@ -6,15 +6,47 @@ import Time "mo:core/Time";
 import Runtime "mo:core/Runtime";
 import Principal "mo:core/Principal";
 
-
+import Stripe "stripe/stripe";
+import OutCall "http-outcalls/outcall";
 import MixinAuthorization "authorization/MixinAuthorization";
 import Storage "blob-storage/Storage";
 import MixinStorage "blob-storage/Mixin";
 import AccessControl "authorization/access-control";
 
-// Enable State Migration via with-clause
-
 actor {
+  // Stripe integration
+  var configuration : ?Stripe.StripeConfiguration = null;
+
+  public query func isStripeConfigured() : async Bool {
+    configuration != null;
+  };
+
+  public shared ({ caller }) func setStripeConfiguration(config : Stripe.StripeConfiguration) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #admin))) {
+      Runtime.trap("Unauthorized: Only admins can perform this action");
+    };
+    configuration := ?config;
+  };
+
+  func getStripeConfiguration() : Stripe.StripeConfiguration {
+    switch (configuration) {
+      case (null) { Runtime.trap("Stripe needs to be first configured") };
+      case (?value) { value };
+    };
+  };
+
+  public func getStripeSessionStatus(sessionId : Text) : async Stripe.StripeSessionStatus {
+    await Stripe.getSessionStatus(getStripeConfiguration(), sessionId, transform);
+  };
+
+  public shared ({ caller }) func createCheckoutSession(items : [Stripe.ShoppingItem], successUrl : Text, cancelUrl : Text) : async Text {
+    await Stripe.createCheckoutSession(getStripeConfiguration(), caller, items, successUrl, cancelUrl, transform);
+  };
+
+  public query func transform(input : OutCall.TransformationInput) : async OutCall.TransformationOutput {
+    OutCall.transform(input);
+  };
+
   // Storage
   include MixinStorage();
 
@@ -540,8 +572,27 @@ actor {
     };
 
     if (not followed.contains(userId)) {
+      // Add to follow map
       followed.add(userId);
       followMap.add(caller, followed);
+
+      // Update following count for caller
+      switch (users.get(caller)) {
+        case (?user) {
+          let updatedUser = { user with followingCount = user.followingCount + 1 };
+          users.add(caller, updatedUser);
+        };
+        case (null) {};
+      };
+
+      // Update follower count for followed user
+      switch (users.get(userId)) {
+        case (?user) {
+          let updatedUser = { user with followerCount = user.followerCount + 1 };
+          users.add(userId, updatedUser);
+        };
+        case (null) {};
+      };
     };
   };
 
@@ -558,8 +609,29 @@ actor {
       case (null) {};
       case (?followers) {
         if (followers.contains(userId)) {
+          // Remove from follow map
           followers.remove(userId);
           followMap.add(caller, followers);
+
+          // Update following count for caller
+          switch (users.get(caller)) {
+            case (?user) {
+              let newFollowingCount = if (user.followingCount > 0) { user.followingCount - 1 } else { 0 };
+              let updatedUser = { user with followingCount = newFollowingCount };
+              users.add(caller, updatedUser);
+            };
+            case (null) {};
+          };
+
+          // Update follower count for unfollowed user
+          switch (users.get(userId)) {
+            case (?user) {
+              let newFollowerCount = if (user.followerCount > 0) { user.followerCount - 1 } else { 0 };
+              let updatedUser = { user with followerCount = newFollowerCount };
+              users.add(userId, updatedUser);
+            };
+            case (null) {};
+          };
         };
       };
     };
@@ -581,6 +653,13 @@ actor {
     switch (followMap.get(userId)) {
       case (null) { [] };
       case (?followings) { followings.toArray() };
+    };
+  };
+
+  public query ({ caller }) func getFollowingCount(userId : Principal) : async Nat {
+    switch (followMap.get(userId)) {
+      case (null) { 0 };
+      case (?followings) { followings.size() };
     };
   };
 

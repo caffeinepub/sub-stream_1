@@ -24,6 +24,13 @@ export const UserRole = IDL.Variant({
   'user' : IDL.Null,
   'guest' : IDL.Null,
 });
+export const ShoppingItem = IDL.Record({
+  'productName' : IDL.Text,
+  'currency' : IDL.Text,
+  'quantity' : IDL.Nat,
+  'priceInCents' : IDL.Nat,
+  'productDescription' : IDL.Text,
+});
 export const Story = IDL.Record({
   'id' : IDL.Nat,
   'creator' : IDL.Principal,
@@ -92,6 +99,13 @@ export const ConversationSummary = IDL.Record({
   'otherUser' : IDL.Principal,
   'unreadCount' : IDL.Nat,
 });
+export const StripeSessionStatus = IDL.Variant({
+  'completed' : IDL.Record({
+    'userPrincipal' : IDL.Opt(IDL.Text),
+    'response' : IDL.Text,
+  }),
+  'failed' : IDL.Record({ 'error' : IDL.Text }),
+});
 export const User = IDL.Record({
   'id' : IDL.Principal,
   'bio' : IDL.Text,
@@ -111,6 +125,28 @@ export const VideoInteractionState = IDL.Record({
   'shareCount' : IDL.Nat,
   'commentCount' : IDL.Nat,
   'bookmarked' : IDL.Bool,
+});
+export const StripeConfiguration = IDL.Record({
+  'allowedCountries' : IDL.Vec(IDL.Text),
+  'secretKey' : IDL.Text,
+});
+export const http_header = IDL.Record({
+  'value' : IDL.Text,
+  'name' : IDL.Text,
+});
+export const http_request_result = IDL.Record({
+  'status' : IDL.Nat,
+  'body' : IDL.Vec(IDL.Nat8),
+  'headers' : IDL.Vec(http_header),
+});
+export const TransformationInput = IDL.Record({
+  'context' : IDL.Vec(IDL.Nat8),
+  'response' : http_request_result,
+});
+export const TransformationOutput = IDL.Record({
+  'status' : IDL.Nat,
+  'body' : IDL.Vec(IDL.Nat8),
+  'headers' : IDL.Vec(http_header),
 });
 
 export const idlService = IDL.Service({
@@ -149,6 +185,11 @@ export const idlService = IDL.Service({
       [],
     ),
   'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
+  'createCheckoutSession' : IDL.Func(
+      [IDL.Vec(ShoppingItem), IDL.Text, IDL.Text],
+      [IDL.Text],
+      [],
+    ),
   'deleteStory' : IDL.Func([IDL.Nat], [], []),
   'deleteVideo' : IDL.Func([IDL.Nat], [], []),
   'follow' : IDL.Func([IDL.Principal], [], []),
@@ -182,6 +223,7 @@ export const idlService = IDL.Service({
       [IDL.Vec(IDL.Principal)],
       ['query'],
     ),
+  'getFollowingCount' : IDL.Func([IDL.Principal], [IDL.Nat], ['query']),
   'getMyStories' : IDL.Func([], [IDL.Vec(Story)], ['query']),
   'getOnlineStatus' : IDL.Func(
       [IDL.Vec(IDL.Principal)],
@@ -191,6 +233,7 @@ export const idlService = IDL.Service({
   'getPinnedVideos' : IDL.Func([IDL.Principal], [IDL.Vec(Video)], ['query']),
   'getStoriesByUser' : IDL.Func([IDL.Principal], [IDL.Vec(Story)], ['query']),
   'getStoryViewCount' : IDL.Func([IDL.Nat], [IDL.Nat], ['query']),
+  'getStripeSessionStatus' : IDL.Func([IDL.Text], [StripeSessionStatus], []),
   'getUser' : IDL.Func([IDL.Principal], [IDL.Opt(User)], ['query']),
   'getUserBookmarks' : IDL.Func([], [IDL.Vec(Video)], ['query']),
   'getUserByEmail' : IDL.Func([IDL.Text], [IDL.Opt(User)], ['query']),
@@ -221,6 +264,7 @@ export const idlService = IDL.Service({
   'incrementViewCount' : IDL.Func([IDL.Nat], [], []),
   'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
   'isFollowing' : IDL.Func([IDL.Principal], [IDL.Bool], ['query']),
+  'isStripeConfigured' : IDL.Func([], [IDL.Bool], ['query']),
   'likeComment' : IDL.Func([IDL.Nat], [], []),
   'likeVideo' : IDL.Func([IDL.Nat], [], []),
   'markConversationRead' : IDL.Func([IDL.Principal], [], []),
@@ -230,8 +274,14 @@ export const idlService = IDL.Service({
   'registerUser' : IDL.Func([IDL.Text, IDL.Text, IDL.Text], [], []),
   'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
   'sendMessage' : IDL.Func([IDL.Principal, IDL.Text], [IDL.Nat], []),
+  'setStripeConfiguration' : IDL.Func([StripeConfiguration], [], []),
   'toggleBookmarkVideo' : IDL.Func([IDL.Nat], [IDL.Bool], []),
   'toggleLikeVideo' : IDL.Func([IDL.Nat], [IDL.Bool], []),
+  'transform' : IDL.Func(
+      [TransformationInput],
+      [TransformationOutput],
+      ['query'],
+    ),
   'unfollow' : IDL.Func([IDL.Principal], [], []),
   'unlikeComment' : IDL.Func([IDL.Nat], [], []),
   'unlikeVideo' : IDL.Func([IDL.Nat], [], []),
@@ -268,6 +318,13 @@ export const idlFactory = ({ IDL }) => {
     'admin' : IDL.Null,
     'user' : IDL.Null,
     'guest' : IDL.Null,
+  });
+  const ShoppingItem = IDL.Record({
+    'productName' : IDL.Text,
+    'currency' : IDL.Text,
+    'quantity' : IDL.Nat,
+    'priceInCents' : IDL.Nat,
+    'productDescription' : IDL.Text,
   });
   const Story = IDL.Record({
     'id' : IDL.Nat,
@@ -337,6 +394,13 @@ export const idlFactory = ({ IDL }) => {
     'otherUser' : IDL.Principal,
     'unreadCount' : IDL.Nat,
   });
+  const StripeSessionStatus = IDL.Variant({
+    'completed' : IDL.Record({
+      'userPrincipal' : IDL.Opt(IDL.Text),
+      'response' : IDL.Text,
+    }),
+    'failed' : IDL.Record({ 'error' : IDL.Text }),
+  });
   const User = IDL.Record({
     'id' : IDL.Principal,
     'bio' : IDL.Text,
@@ -356,6 +420,25 @@ export const idlFactory = ({ IDL }) => {
     'shareCount' : IDL.Nat,
     'commentCount' : IDL.Nat,
     'bookmarked' : IDL.Bool,
+  });
+  const StripeConfiguration = IDL.Record({
+    'allowedCountries' : IDL.Vec(IDL.Text),
+    'secretKey' : IDL.Text,
+  });
+  const http_header = IDL.Record({ 'value' : IDL.Text, 'name' : IDL.Text });
+  const http_request_result = IDL.Record({
+    'status' : IDL.Nat,
+    'body' : IDL.Vec(IDL.Nat8),
+    'headers' : IDL.Vec(http_header),
+  });
+  const TransformationInput = IDL.Record({
+    'context' : IDL.Vec(IDL.Nat8),
+    'response' : http_request_result,
+  });
+  const TransformationOutput = IDL.Record({
+    'status' : IDL.Nat,
+    'body' : IDL.Vec(IDL.Nat8),
+    'headers' : IDL.Vec(http_header),
   });
   
   return IDL.Service({
@@ -394,6 +477,11 @@ export const idlFactory = ({ IDL }) => {
         [],
       ),
     'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
+    'createCheckoutSession' : IDL.Func(
+        [IDL.Vec(ShoppingItem), IDL.Text, IDL.Text],
+        [IDL.Text],
+        [],
+      ),
     'deleteStory' : IDL.Func([IDL.Nat], [], []),
     'deleteVideo' : IDL.Func([IDL.Nat], [], []),
     'follow' : IDL.Func([IDL.Principal], [], []),
@@ -431,6 +519,7 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Vec(IDL.Principal)],
         ['query'],
       ),
+    'getFollowingCount' : IDL.Func([IDL.Principal], [IDL.Nat], ['query']),
     'getMyStories' : IDL.Func([], [IDL.Vec(Story)], ['query']),
     'getOnlineStatus' : IDL.Func(
         [IDL.Vec(IDL.Principal)],
@@ -440,6 +529,7 @@ export const idlFactory = ({ IDL }) => {
     'getPinnedVideos' : IDL.Func([IDL.Principal], [IDL.Vec(Video)], ['query']),
     'getStoriesByUser' : IDL.Func([IDL.Principal], [IDL.Vec(Story)], ['query']),
     'getStoryViewCount' : IDL.Func([IDL.Nat], [IDL.Nat], ['query']),
+    'getStripeSessionStatus' : IDL.Func([IDL.Text], [StripeSessionStatus], []),
     'getUser' : IDL.Func([IDL.Principal], [IDL.Opt(User)], ['query']),
     'getUserBookmarks' : IDL.Func([], [IDL.Vec(Video)], ['query']),
     'getUserByEmail' : IDL.Func([IDL.Text], [IDL.Opt(User)], ['query']),
@@ -474,6 +564,7 @@ export const idlFactory = ({ IDL }) => {
     'incrementViewCount' : IDL.Func([IDL.Nat], [], []),
     'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
     'isFollowing' : IDL.Func([IDL.Principal], [IDL.Bool], ['query']),
+    'isStripeConfigured' : IDL.Func([], [IDL.Bool], ['query']),
     'likeComment' : IDL.Func([IDL.Nat], [], []),
     'likeVideo' : IDL.Func([IDL.Nat], [], []),
     'markConversationRead' : IDL.Func([IDL.Principal], [], []),
@@ -483,8 +574,14 @@ export const idlFactory = ({ IDL }) => {
     'registerUser' : IDL.Func([IDL.Text, IDL.Text, IDL.Text], [], []),
     'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
     'sendMessage' : IDL.Func([IDL.Principal, IDL.Text], [IDL.Nat], []),
+    'setStripeConfiguration' : IDL.Func([StripeConfiguration], [], []),
     'toggleBookmarkVideo' : IDL.Func([IDL.Nat], [IDL.Bool], []),
     'toggleLikeVideo' : IDL.Func([IDL.Nat], [IDL.Bool], []),
+    'transform' : IDL.Func(
+        [TransformationInput],
+        [TransformationOutput],
+        ['query'],
+      ),
     'unfollow' : IDL.Func([IDL.Principal], [], []),
     'unlikeComment' : IDL.Func([IDL.Nat], [], []),
     'unlikeVideo' : IDL.Func([IDL.Nat], [], []),

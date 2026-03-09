@@ -10,20 +10,28 @@ export interface BattleInvite {
 
 interface UseBattleInvitePollerOptions {
   enabled: boolean;
+  /** Battle invites are only shown to the recipient when they are currently live */
+  isCurrentlyLive: boolean;
   onInviteReceived: (invite: BattleInvite) => void;
 }
 
 export function useBattleInvitePoller({
   enabled,
+  isCurrentlyLive,
   onInviteReceived,
 }: UseBattleInvitePollerOptions) {
   const { actor } = useAuth();
   const seenMessageIds = useRef<Set<string>>(new Set());
   const onInviteReceivedRef = useRef(onInviteReceived);
+  const isCurrentlyLiveRef = useRef(isCurrentlyLive);
 
-  // Keep the callback ref fresh without re-running the effect
+  // Keep callback and live-status refs fresh without re-running the effect
   useEffect(() => {
     onInviteReceivedRef.current = onInviteReceived;
+  });
+
+  useEffect(() => {
+    isCurrentlyLiveRef.current = isCurrentlyLive;
   });
 
   useEffect(() => {
@@ -45,6 +53,9 @@ export function useBattleInvitePoller({
           const messageId = `${conv.otherUser.toText()}-${conv.lastMessageAt.toString()}`;
           if (seenMessageIds.current.has(messageId)) continue;
           seenMessageIds.current.add(messageId);
+
+          // Only fire the invite if the recipient is currently live
+          if (!isCurrentlyLiveRef.current) continue;
 
           // Parse stream ID from "BATTLE_INVITE:{streamId}"
           const streamId = lastMsg.replace("BATTLE_INVITE:", "").trim();

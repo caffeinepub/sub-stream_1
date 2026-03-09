@@ -2,27 +2,33 @@ import { Bell, Search } from "lucide-react";
 import { useState } from "react";
 
 const TABS = ["LIVE", "Explore", "Following", "For You"] as const;
-type Tab = (typeof TABS)[number];
+export type TopNavTab = (typeof TABS)[number];
 
 interface TopNavProps {
   onNavigate?: (tab: string) => void;
+  onTabChange?: (tab: TopNavTab) => void;
   onSearch?: () => void;
   searchActive?: boolean;
   onNotifications?: () => void;
   notificationCount?: number;
+  activeTab?: TopNavTab;
 }
 
 export function TopNav({
   onNavigate,
+  onTabChange,
   onSearch,
   searchActive,
   onNotifications,
   notificationCount = 0,
+  activeTab: controlledTab,
 }: TopNavProps = {}) {
-  const [activeTab, setActiveTab] = useState<Tab>("For You");
+  const [internalTab, setInternalTab] = useState<TopNavTab>("For You");
+  const activeTab = controlledTab ?? internalTab;
 
-  const handleTabClick = (tab: Tab) => {
-    setActiveTab(tab);
+  const handleTabClick = (tab: TopNavTab) => {
+    setInternalTab(tab);
+    onTabChange?.(tab);
     onNavigate?.(tab);
   };
 

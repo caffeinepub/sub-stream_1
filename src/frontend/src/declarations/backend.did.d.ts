@@ -43,6 +43,13 @@ export interface FileMetadata {
   'fileSize' : bigint,
   'uploadedAt' : bigint,
 }
+export interface ShoppingItem {
+  'productName' : string,
+  'currency' : string,
+  'quantity' : bigint,
+  'priceInCents' : bigint,
+  'productDescription' : string,
+}
 export interface Story {
   'id' : bigint,
   'creator' : Principal,
@@ -52,6 +59,23 @@ export interface Story {
   'textOverlay' : string,
   'mediaType' : string,
   'viewerCount' : bigint,
+}
+export interface StripeConfiguration {
+  'allowedCountries' : Array<string>,
+  'secretKey' : string,
+}
+export type StripeSessionStatus = {
+    'completed' : { 'userPrincipal' : [] | [string], 'response' : string }
+  } |
+  { 'failed' : { 'error' : string } };
+export interface TransformationInput {
+  'context' : Uint8Array,
+  'response' : http_request_result,
+}
+export interface TransformationOutput {
+  'status' : bigint,
+  'body' : Uint8Array,
+  'headers' : Array<http_header>,
 }
 export interface User {
   'id' : Principal,
@@ -112,6 +136,12 @@ export interface _CaffeineStorageRefillResult {
   'success' : [] | [boolean],
   'topped_up_amount' : [] | [bigint],
 }
+export interface http_header { 'value' : string, 'name' : string }
+export interface http_request_result {
+  'status' : bigint,
+  'body' : Uint8Array,
+  'headers' : Array<http_header>,
+}
 export interface _SERVICE {
   '_caffeineStorageBlobIsLive' : ActorMethod<[Uint8Array], boolean>,
   '_caffeineStorageBlobsToDelete' : ActorMethod<[], Array<Uint8Array>>,
@@ -136,6 +166,10 @@ export interface _SERVICE {
     bigint
   >,
   'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
+  'createCheckoutSession' : ActorMethod<
+    [Array<ShoppingItem>, string, string],
+    string
+  >,
   'deleteStory' : ActorMethod<[bigint], undefined>,
   'deleteVideo' : ActorMethod<[bigint], undefined>,
   'follow' : ActorMethod<[Principal], undefined>,
@@ -153,11 +187,13 @@ export interface _SERVICE {
   'getFollowerCount' : ActorMethod<[Principal], bigint>,
   'getFollowers' : ActorMethod<[Principal], Array<Principal>>,
   'getFollowing' : ActorMethod<[Principal], Array<Principal>>,
+  'getFollowingCount' : ActorMethod<[Principal], bigint>,
   'getMyStories' : ActorMethod<[], Array<Story>>,
   'getOnlineStatus' : ActorMethod<[Array<Principal>], Array<boolean>>,
   'getPinnedVideos' : ActorMethod<[Principal], Array<Video>>,
   'getStoriesByUser' : ActorMethod<[Principal], Array<Story>>,
   'getStoryViewCount' : ActorMethod<[bigint], bigint>,
+  'getStripeSessionStatus' : ActorMethod<[string], StripeSessionStatus>,
   'getUser' : ActorMethod<[Principal], [] | [User]>,
   'getUserBookmarks' : ActorMethod<[], Array<Video>>,
   'getUserByEmail' : ActorMethod<[string], [] | [User]>,
@@ -178,6 +214,7 @@ export interface _SERVICE {
   'incrementViewCount' : ActorMethod<[bigint], undefined>,
   'isCallerAdmin' : ActorMethod<[], boolean>,
   'isFollowing' : ActorMethod<[Principal], boolean>,
+  'isStripeConfigured' : ActorMethod<[], boolean>,
   'likeComment' : ActorMethod<[bigint], undefined>,
   'likeVideo' : ActorMethod<[bigint], undefined>,
   'markConversationRead' : ActorMethod<[Principal], undefined>,
@@ -187,8 +224,10 @@ export interface _SERVICE {
   'registerUser' : ActorMethod<[string, string, string], undefined>,
   'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
   'sendMessage' : ActorMethod<[Principal, string], bigint>,
+  'setStripeConfiguration' : ActorMethod<[StripeConfiguration], undefined>,
   'toggleBookmarkVideo' : ActorMethod<[bigint], boolean>,
   'toggleLikeVideo' : ActorMethod<[bigint], boolean>,
+  'transform' : ActorMethod<[TransformationInput], TransformationOutput>,
   'unfollow' : ActorMethod<[Principal], undefined>,
   'unlikeComment' : ActorMethod<[bigint], undefined>,
   'unlikeVideo' : ActorMethod<[bigint], undefined>,

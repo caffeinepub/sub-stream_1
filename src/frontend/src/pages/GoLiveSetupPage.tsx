@@ -18,6 +18,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
 import { setLiveStatusStatic } from "../hooks/useLiveStatus";
+import { writeLiveSignal } from "../utils/recommendationEngine";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -208,10 +209,22 @@ export function GoLiveSetupPage({ onBack, onStartLive }: GoLiveSetupPageProps) {
       current -= 1;
       if (current <= 0) {
         clearInterval(tick);
-        // Mark the user as live
+        // Mark the user as live + write LiveSignal for discovery
         const myPrincipal = identity?.getPrincipal().toString();
         if (myPrincipal) {
           setLiveStatusStatic(myPrincipal, true);
+          writeLiveSignal({
+            streamId: `${myPrincipal}_${Date.now()}`,
+            hostId: myPrincipal,
+            hostName: title.trim(),
+            title: title.trim(),
+            category,
+            viewerCount: 0,
+            giftCount: 0,
+            chatCount: 0,
+            isActive: true,
+            startedAt: Date.now(),
+          });
         }
         onStartLive({
           title: title.trim(),

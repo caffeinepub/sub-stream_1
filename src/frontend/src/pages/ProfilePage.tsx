@@ -1,3 +1,4 @@
+import { Principal } from "@icp-sdk/core/principal";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -30,6 +31,7 @@ import {
 import { StoryOptionsSheet } from "../components/StoryOptionsSheet";
 import { StoryRing } from "../components/StoryRing";
 import { useAuth } from "../context/AuthContext";
+import { useInternetIdentity } from "../hooks/useInternetIdentity";
 import {
   getDisplayName,
   getUsername,
@@ -82,6 +84,8 @@ export function ProfilePage({
   onOpenWallet,
 }: ProfilePageProps) {
   const { userProfile, actor, isAuthenticated, refreshProfile } = useAuth();
+  const { identity } = useInternetIdentity();
+  const myPrincipal = identity?.getPrincipal().toString() ?? "";
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<ProfileTab>("videos");
   const displayNameFieldId = useId();
@@ -167,31 +171,13 @@ export function ProfilePage({
   }, [isEditing]);
 
   const { data: videos = [], isLoading } = useQuery<Video[]>({
-    queryKey: ["profileVideos"],
+    queryKey: ["profileVideos", myPrincipal],
     queryFn: async () => {
-      if (!actor || !isAuthenticated) return [];
-      // Get the caller's principal via getUser - use a workaround: fetch all videos by creator
-      // Use getAllUserids to find caller, or just use getAllVideos filtered
-      // Best path: fetch via getCallerUserProfile then getUserVideos
-      const profile = await actor.getCallerUserProfile();
-      if (!profile) return [];
-      // getUserVideos needs a Principal - use identity from InternetIdentity
-      // We'll use getVideosByCreator via the actor - but we need the principal
-      // The profile doesn't include the principal directly. Use getAllVideos for now
-      // but filter via profile matching. Actually the correct call is getUserVideos
-      // which takes a Principal. We get it from useInternetIdentity identity.
-      // Since actor already scopes to the caller, we use getVideosByCreator trick:
-      // Alternatively fetch all and match by profile name/email (current approach kept).
-      // Better: use the backend.d.ts - getUserVideos takes Principal.
-      // We'll fetch all videos and we already have the identity from auth context.
-      // Actually the simplest approach: use getAllVideos and rely on the profile page
-      // only showing this user's videos via the mutation-based approach.
-      // For full correctness, we should use a principal. Let's get it from
-      // getAllUserids or store it. For now use getAllVideos - will be fixed when
-      // we can pass the caller principal directly.
-      return await actor.getAllVideos();
+      if (!actor || !isAuthenticated || !myPrincipal) return [];
+      // Use getUserVideos scoped to the current user's principal for correct ownership
+      return actor.getUserVideos(Principal.fromText(myPrincipal));
     },
-    enabled: !!actor && isAuthenticated,
+    enabled: !!actor && isAuthenticated && !!myPrincipal,
   });
 
   // Fetch pinned video IDs
@@ -209,6 +195,28 @@ export function ProfilePage({
     },
     enabled: !!actor && isAuthenticated,
     staleTime: 30_000,
+  });
+
+  // Fetch the authoritative follower count from the backend
+  const { data: realFollowerCount } = useQuery<bigint>({
+    queryKey: ["followerCount", myPrincipal],
+    queryFn: async () => {
+      if (!actor || !myPrincipal) return BigInt(0);
+      return actor.getFollowerCount(Principal.fromText(myPrincipal));
+    },
+    enabled: !!actor && isAuthenticated && !!myPrincipal,
+    staleTime: 0,
+  });
+
+  // Fetch the authoritative following count from the backend
+  const { data: realFollowingCount } = useQuery<bigint>({
+    queryKey: ["followingCount", myPrincipal],
+    queryFn: async () => {
+      if (!actor || !myPrincipal) return BigInt(0);
+      return actor.getFollowingCount(Principal.fromText(myPrincipal));
+    },
+    enabled: !!actor && isAuthenticated && !!myPrincipal,
+    staleTime: 0,
   });
 
   const pinnedIds = new Set(pinnedVideos.map((v) => v.id.toString()));
@@ -273,8 +281,12 @@ export function ProfilePage({
   const username = getUsername(rawName);
   const bio = userProfile?.bio || "";
   const avatarUrl = userProfile?.avatarUrl || "";
-  const followerCount = userProfile?.followerCount ?? BigInt(0);
-  const followingCount = userProfile?.followingCount ?? BigInt(0);
+  // Use the authoritative backend follower count; fall back to profile value while loading
+  const followerCount =
+    realFollowerCount ?? userProfile?.followerCount ?? BigInt(0);
+  // Use the authoritative backend following count; fall back to profile value while loading
+  const followingCount =
+    realFollowingCount ?? userProfile?.followingCount ?? BigInt(0);
   const isOnline = userProfile?.isOnline ?? false;
 
   // Total likes across videos
@@ -860,6 +872,7 @@ export function ProfilePage({
             pinnedIds={pinnedIds}
             isLoading={isLoading}
             isOwn={isAuthenticated}
+            myPrincipal={myPrincipal}
             onVideoTap={(i) => {
               setPlayerIndex(i);
               setPlayerOpen(true);
@@ -1171,6 +1184,7 @@ function VideoGrid({
   pinnedIds,
   isLoading,
   isOwn,
+  myPrincipal,
   onVideoTap,
   onMenuOpen,
 }: {
@@ -1178,6 +1192,7 @@ function VideoGrid({
   pinnedIds: Set<string>;
   isLoading: boolean;
   isOwn: boolean;
+  myPrincipal?: string;
   onVideoTap: (index: number) => void;
   onMenuOpen: (videoId: bigint) => void;
 }) {
@@ -1280,26 +1295,27 @@ function VideoGrid({
               </div>
             </button>
 
-            {/* Three-dots menu button — only on own profile */}
-            {isOwn && (
-              <button
-                type="button"
-                data-ocid={`profile.video_menu_button.${i + 1}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onMenuOpen(video.id);
-                }}
-                className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full flex items-center justify-center z-10"
-                style={{
-                  background: "rgba(0,0,0,0.6)",
-                  backdropFilter: "blur(6px)",
-                  WebkitBackdropFilter: "blur(6px)",
-                }}
-                aria-label="Video options"
-              >
-                <MoreHorizontal size={13} className="text-white" />
-              </button>
-            )}
+            {/* Three-dots menu button — only shown to the video's creator */}
+            {isOwn &&
+              (!myPrincipal || video.creator.toText() === myPrincipal) && (
+                <button
+                  type="button"
+                  data-ocid={`profile.video_menu_button.${i + 1}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onMenuOpen(video.id);
+                  }}
+                  className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full flex items-center justify-center z-10"
+                  style={{
+                    background: "rgba(0,0,0,0.6)",
+                    backdropFilter: "blur(6px)",
+                    WebkitBackdropFilter: "blur(6px)",
+                  }}
+                  aria-label="Video options"
+                >
+                  <MoreHorizontal size={13} className="text-white" />
+                </button>
+              )}
           </div>
         );
       })}

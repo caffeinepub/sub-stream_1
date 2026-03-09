@@ -22,6 +22,7 @@ import type { Comment, Video, VideoInteractionState } from "../backend.d";
 import { useAuth } from "../context/AuthContext";
 import { useVideoAspectRatio } from "../hooks/useVideoAspectRatio";
 import { getDisplayName, getUsername } from "../lib/userFormat";
+import { getDistributionStage } from "../utils/recommendationEngine";
 import { OnlineDot } from "./OnlineDot";
 
 // Gradient palette for video placeholders
@@ -67,6 +68,8 @@ interface VideoCardProps {
   onNavigateToProfile?: (principal: string) => void;
   isMuted: boolean;
   onMuteChange: (muted: boolean) => void;
+  /** Called when a like action occurs — passes video hashtags for interest tracking */
+  onLike?: (hashtags: string[]) => void;
 }
 
 export function VideoCard({
@@ -75,6 +78,7 @@ export function VideoCard({
   onNavigateToProfile,
   isMuted,
   onMuteChange,
+  onLike,
 }: VideoCardProps) {
   const { actor, userProfile } = useAuth();
   const queryClient = useQueryClient();
@@ -316,6 +320,7 @@ export function VideoCard({
       toast.error("Log in to like videos");
       return;
     }
+    onLike?.(video.hashtags);
     likeMutation.mutate();
   };
 
@@ -339,6 +344,7 @@ export function VideoCard({
 
       // Only like if not already liked; double-tap should never unlike
       if (!liked && isAuthenticated && actor) {
+        onLike?.(video.hashtags);
         // Optimistic UI
         queryClient.setQueryData(
           interactionQueryKey,
@@ -368,7 +374,17 @@ export function VideoCard({
           });
       }
     },
-    [liked, isAuthenticated, actor, video.id, queryClient, interactionQueryKey],
+    // biome-ignore lint/correctness/useExhaustiveDependencies: onLike and video.hashtags are stable per render; adding them would cause unnecessary re-creation
+    [
+      liked,
+      isAuthenticated,
+      actor,
+      video.id,
+      video.hashtags,
+      onLike,
+      queryClient,
+      interactionQueryKey,
+    ],
   );
 
   // ─── Core gesture logic ──────────────────────────────────────────────────
@@ -717,9 +733,27 @@ export function VideoCard({
             </span>
           ))}
         </div>
-        <div className="flex items-center gap-1.5 pointer-events-none">
-          <Music2 size={12} className="text-white/70 flex-shrink-0" />
-          <p className="text-white/70 text-xs truncate">Original audio</p>
+        <div className="flex items-center gap-2 pointer-events-none">
+          <div className="flex items-center gap-1.5">
+            <Music2 size={12} className="text-white/70 flex-shrink-0" />
+            <p className="text-white/70 text-xs truncate">Original audio</p>
+          </div>
+          {/* Distribution stage badge */}
+          {getDistributionStage(video) === 4 && (
+            <span
+              className="px-1.5 py-0.5 rounded-full text-white font-black uppercase"
+              style={{
+                background: "#ff0050",
+                fontSize: 8,
+                letterSpacing: "0.05em",
+              }}
+            >
+              VIRAL
+            </span>
+          )}
+          {getDistributionStage(video) === 3 && (
+            <span className="text-xs">🔥</span>
+          )}
         </div>
       </div>
 
