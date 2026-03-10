@@ -1,9 +1,10 @@
+import { useQuery } from "@tanstack/react-query";
 import { Loader2, Zap } from "lucide-react";
 import { motion } from "motion/react";
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
-import { sanitizeUsername } from "../lib/userFormat";
+import { getUsername, sanitizeUsername } from "../lib/userFormat";
 
 interface UsernameSetupPageProps {
   onLogout: () => void;
@@ -24,15 +25,77 @@ function validateDisplayName(value: string): string | null {
 }
 
 export function UsernameSetupPage({ onLogout }: UsernameSetupPageProps) {
-  const { setUsernameOnBackend } = useAuth();
+  const { setUsernameOnBackend, actor } = useAuth();
   const displayNameId = useId();
   const usernameId = useId();
+  const realNameId = useId();
 
   const [displayName, setDisplayName] = useState("");
   const [username, setUsername] = useState("");
+  const [realName, setRealName] = useState(
+    () => localStorage.getItem("ss_real_name") ?? "",
+  );
   const [displayNameTouched, setDisplayNameTouched] = useState(false);
   const [usernameTouched, setUsernameTouched] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Debounced username for availability check
+  const [debouncedUsername, setDebouncedUsername] = useState("");
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    const formatError = validateUsername(username);
+    if (!username || formatError) {
+      setDebouncedUsername("");
+      return;
+    }
+    debounceRef.current = setTimeout(() => {
+      setDebouncedUsername(username);
+    }, 600);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [username]);
+
+  // Fetch all user IDs for availability check
+  const { data: allUserIds = [] } = useQuery({
+    queryKey: ["allUserIds"],
+    queryFn: async () => {
+      if (!actor) return [];
+      return actor.getAllUserids();
+    },
+    enabled: !!actor,
+    staleTime: 30_000,
+  });
+
+  // Check username availability
+  const {
+    data: availabilityResult,
+    isLoading: isCheckingAvailability,
+    isFetching: isFetchingAvailability,
+  } = useQuery({
+    queryKey: ["usernameAvailability", debouncedUsername],
+    queryFn: async () => {
+      if (!actor || !debouncedUsername || allUserIds.length === 0) return null;
+      const profiles = await Promise.all(
+        allUserIds.map((id) => actor.getUserProfile(id).catch(() => null)),
+      );
+      const targetLower = debouncedUsername.toLowerCase();
+      const taken = profiles.some((profile) => {
+        if (!profile) return false;
+        return getUsername(profile.name ?? "").toLowerCase() === targetLower;
+      });
+      return taken ? "taken" : "available";
+    },
+    enabled: !!actor && !!debouncedUsername && allUserIds.length > 0,
+    staleTime: 0,
+  });
+
+  const isChecking =
+    !!debouncedUsername && (isCheckingAvailability || isFetchingAvailability);
+  const isTaken = availabilityResult === "taken";
+  const isAvailable = availabilityResult === "available";
 
   const displayNameError = displayName
     ? validateDisplayName(displayName)
@@ -44,15 +107,14 @@ export function UsernameSetupPage({ onLogout }: UsernameSetupPageProps) {
 
   const isDisplayNameValid = displayName.trim().length > 0 && !displayNameError;
   const isUsernameValid = username.length > 0 && !usernameError;
-  const isFormValid = isDisplayNameValid && isUsernameValid;
+  const isFormValid =
+    isDisplayNameValid && isUsernameValid && !isTaken && !isChecking;
 
   const handleDisplayNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Auto-uppercase as user types
     setDisplayName(e.target.value.toUpperCase());
   };
 
   const handleUsernameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Sanitize as user types: strip spaces, keep valid chars
     setUsername(sanitizeUsername(e.target.value));
   };
 
@@ -62,9 +124,18 @@ export function UsernameSetupPage({ onLogout }: UsernameSetupPageProps) {
     setUsernameTouched(true);
     if (!isFormValid || isLoading) return;
 
+    // Save real name to localStorage before calling backend
+    if (realName.trim()) {
+      localStorage.setItem("ss_real_name", realName.trim());
+    }
+
     setIsLoading(true);
     try {
-      await setUsernameOnBackend(displayName.trim(), username.trim());
+      await setUsernameOnBackend(
+        displayName.trim(),
+        username.trim(),
+        realName.trim() || undefined,
+      );
       // needsUsername will flip to false in context → App routes to feed automatically
     } catch (err) {
       toast.error(
@@ -217,7 +288,6 @@ export function UsernameSetupPage({ onLogout }: UsernameSetupPageProps) {
               />
             </div>
 
-            {/* Display Name validation */}
             <motion.div
               animate={{
                 height: showDisplayNameError ? "auto" : 0,
@@ -245,6 +315,45 @@ export function UsernameSetupPage({ onLogout }: UsernameSetupPageProps) {
             )}
           </div>
 
+          {/* Real Name input (optional) */}
+          <div className="space-y-1.5">
+            <label
+              htmlFor={realNameId}
+              className="block text-white/70 text-xs font-medium tracking-wide uppercase"
+            >
+              Real Name{" "}
+              <span className="text-white/30 lowercase normal-case">
+                (optional)
+              </span>
+            </label>
+            <div
+              className="flex items-center h-12 rounded-xl overflow-hidden"
+              style={{
+                background: "rgba(255,255,255,0.05)",
+                border: "1px solid rgba(255,255,255,0.10)",
+                transition: "border-color 0.2s",
+              }}
+            >
+              <input
+                id={realNameId}
+                data-ocid="username_setup.real_name_input"
+                type="text"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+                placeholder="John Smith"
+                value={realName}
+                onChange={(e) => setRealName(e.target.value)}
+                maxLength={100}
+                className="flex-1 h-full bg-transparent text-white placeholder:text-white/25 outline-none px-4"
+                style={{ fontSize: "16px" }}
+              />
+            </div>
+            <p className="text-white/25 text-xs pt-0.5">
+              Used for search and verification
+            </p>
+          </div>
+
           {/* Username input with @ prefix */}
           <div className="space-y-1.5">
             <label
@@ -258,11 +367,13 @@ export function UsernameSetupPage({ onLogout }: UsernameSetupPageProps) {
               style={{
                 background: "rgba(255,255,255,0.05)",
                 border: `1px solid ${
-                  showUsernameError
+                  showUsernameError || isTaken
                     ? "rgba(255,0,80,0.5)"
-                    : isUsernameValid
-                      ? "rgba(255,0,80,0.3)"
-                      : "rgba(255,255,255,0.10)"
+                    : isAvailable
+                      ? "rgba(34,197,94,0.5)"
+                      : isUsernameValid
+                        ? "rgba(255,0,80,0.3)"
+                        : "rgba(255,255,255,0.10)"
                 }`,
                 transition: "border-color 0.2s",
               }}
@@ -291,20 +402,40 @@ export function UsernameSetupPage({ onLogout }: UsernameSetupPageProps) {
                 aria-describedby={
                   showUsernameError ? `${usernameId}-error` : undefined
                 }
-                aria-invalid={showUsernameError}
+                aria-invalid={showUsernameError || isTaken}
               />
             </div>
 
-            {/* Username validation message */}
-            <motion.div
-              animate={{
-                height: showUsernameError ? "auto" : 0,
-                opacity: showUsernameError ? 1 : 0,
-              }}
-              transition={{ duration: 0.18 }}
-              className="overflow-hidden"
+            {/* Availability indicator */}
+            <div
+              data-ocid="username_setup.availability_state"
+              className="min-h-[20px]"
             >
-              {showUsernameError && (
+              {isChecking && (
+                <p
+                  className="text-xs pt-1 flex items-center gap-1"
+                  style={{ color: "rgba(255,255,255,0.4)" }}
+                >
+                  <Loader2 size={11} className="animate-spin" />
+                  Checking…
+                </p>
+              )}
+              {!isChecking && isTaken && (
+                <p
+                  data-ocid="username_setup.error_state"
+                  className="text-xs pt-1"
+                  style={{ color: "#ff0050" }}
+                  role="alert"
+                >
+                  ✗ This username is already taken. Please choose another.
+                </p>
+              )}
+              {!isChecking && isAvailable && (
+                <p className="text-xs pt-1" style={{ color: "#22c55e" }}>
+                  ✓ Available
+                </p>
+              )}
+              {showUsernameError && !isTaken && !isChecking && (
                 <p
                   id={`${usernameId}-error`}
                   data-ocid="username_setup.error_state"
@@ -315,14 +446,15 @@ export function UsernameSetupPage({ onLogout }: UsernameSetupPageProps) {
                   {usernameError}
                 </p>
               )}
-            </motion.div>
-
-            {/* Requirements hint */}
-            {!showUsernameError && (
-              <p className="text-white/25 text-xs pt-0.5">
-                Min. 3 characters · letters, numbers, underscores
-              </p>
-            )}
+              {!showUsernameError &&
+                !isChecking &&
+                !isTaken &&
+                !isAvailable && (
+                  <p className="text-white/25 text-xs pt-0.5">
+                    Min. 3 characters · letters, numbers, underscores
+                  </p>
+                )}
+            </div>
           </div>
 
           {/* Continue button */}

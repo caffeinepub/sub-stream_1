@@ -14,6 +14,7 @@ interface RegisterPageProps {
 export function RegisterPage({ onGoToLogin }: RegisterPageProps) {
   const { registerWithEmail, loginWithII, isInitializing } = useAuth();
   const [name, setName] = useState("");
+  const [realName, setRealName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -36,7 +37,12 @@ export function RegisterPage({ onGoToLogin }: RegisterPageProps) {
     }
     setIsLoading(true);
     try {
-      await registerWithEmail(name.trim(), email, password);
+      await registerWithEmail(
+        name.trim(),
+        email,
+        password,
+        realName.trim() || undefined,
+      );
       toast.success("Account created! Welcome to SUB STREAM.");
     } catch (err) {
       toast.error(
@@ -67,6 +73,14 @@ export function RegisterPage({ onGoToLogin }: RegisterPageProps) {
         style={{
           background:
             "radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255,0,80,0.12) 0%, transparent 65%)",
+        }}
+      />
+      <div
+        className="absolute bottom-0 left-0 right-0 pointer-events-none"
+        aria-hidden="true"
+        style={{
+          background:
+            "radial-gradient(ellipse 60% 40% at 50% 100%, rgba(255,0,80,0.07) 0%, transparent 70%)",
         }}
       />
 
@@ -190,7 +204,7 @@ export function RegisterPage({ onGoToLogin }: RegisterPageProps) {
         >
           <div className="space-y-1.5">
             <Label className="text-white/70 text-xs font-medium tracking-wide uppercase">
-              Name
+              Display Name
             </Label>
             <Input
               data-ocid="register.name_input"
@@ -202,6 +216,28 @@ export function RegisterPage({ onGoToLogin }: RegisterPageProps) {
               className="h-12 rounded-xl border-white/10 bg-white/5 text-white placeholder:text-white/30 focus-visible:ring-1 focus-visible:ring-[#ff0050] focus-visible:border-[#ff0050]/50"
               style={{ fontSize: "16px" }}
             />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-white/70 text-xs font-medium tracking-wide uppercase">
+              Real Name{" "}
+              <span className="text-white/30 lowercase normal-case">
+                (optional)
+              </span>
+            </Label>
+            <Input
+              data-ocid="register.real_name_input"
+              type="text"
+              placeholder="John Smith"
+              value={realName}
+              onChange={(e) => setRealName(e.target.value)}
+              autoComplete="off"
+              className="h-12 rounded-xl border-white/10 bg-white/5 text-white placeholder:text-white/30 focus-visible:ring-1 focus-visible:ring-[#ff0050] focus-visible:border-[#ff0050]/50"
+              style={{ fontSize: "16px" }}
+            />
+            <p className="text-white/25 text-xs">
+              Used for search and verification
+            </p>
           </div>
 
           <div className="space-y-1.5">

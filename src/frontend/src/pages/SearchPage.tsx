@@ -61,27 +61,29 @@ function formatCount(n: bigint | number): string {
 }
 
 // ─── Parse packed name helper ──────────────────────────────────────────────────
-function parseName(rawName: string): { displayName: string; username: string } {
-  if (rawName.includes("|")) {
-    const [d, u] = rawName.split("|", 2);
-    return { displayName: d ?? "", username: u ?? "" };
-  }
-  return { displayName: rawName, username: "" };
+function parseName(rawName: string): {
+  displayName: string;
+  username: string;
+  realName: string;
+} {
+  const parts = rawName.split("|");
+  return {
+    displayName: parts[0] ?? "",
+    username: parts[1] ?? "",
+    realName: parts[2] ?? "",
+  };
 }
 
-// ─── User matches query helper ─────────────────────────────────────────────────
+// ─── User matches query helper — matches username, displayName, realName ────────
 function userMatchesQuery(profile: UserProfile, q: string): boolean {
   if (!q) return true;
-  // Strip leading @ from query
   const stripped = q.startsWith("@") ? q.slice(1) : q;
-  const { displayName, username } = parseName(profile.name ?? "");
+  const { displayName, username, realName } = parseName(profile.name ?? "");
   return (
     displayName.toLowerCase().includes(stripped) ||
     username.toLowerCase().includes(stripped) ||
-    // Also match the full packed name
-    (profile.name ?? "")
-      .toLowerCase()
-      .includes(stripped)
+    realName.toLowerCase().includes(stripped) ||
+    (profile.name ?? "").toLowerCase().includes(stripped)
   );
 }
 
@@ -169,14 +171,16 @@ function UserCard({
   index,
   onTap,
   currentUserPrincipalStr,
+  isLive,
 }: {
   principalStr: string;
   profile: UserProfile;
   index: number;
   onTap: (p: string) => void;
   currentUserPrincipalStr?: string;
+  isLive?: boolean;
 }) {
-  const { displayName, username } = parseName(profile.name ?? "");
+  const { displayName, username, realName } = parseName(profile.name ?? "");
   const initials = (displayName || "U").slice(0, 2).toUpperCase();
   const isSelf = currentUserPrincipalStr === principalStr;
 
@@ -196,7 +200,7 @@ function UserCard({
       <button
         type="button"
         onClick={() => onTap(principalStr)}
-        className="w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center overflow-hidden focus:outline-none"
+        className="relative w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center overflow-hidden focus:outline-none"
         style={{
           background: "linear-gradient(135deg, #ff0050 0%, #ff6b35 100%)",
         }}
@@ -211,6 +215,16 @@ function UserCard({
         ) : (
           <span className="text-white font-bold text-sm">{initials}</span>
         )}
+        {/* Live ring */}
+        {isLive && (
+          <span
+            className="absolute inset-0 rounded-full pointer-events-none"
+            style={{
+              boxShadow: "0 0 0 2px #ff0050",
+              animation: "pulse 1.5s ease-in-out infinite",
+            }}
+          />
+        )}
       </button>
 
       {/* Info — tappable to open profile */}
@@ -219,14 +233,27 @@ function UserCard({
         onClick={() => onTap(principalStr)}
         className="flex-1 text-left min-w-0 focus:outline-none"
       >
-        <p
-          className="text-white font-bold text-sm truncate"
-          style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}
-        >
-          {displayName || "User"}
-        </p>
+        <div className="flex items-center gap-1.5">
+          <p
+            className="text-white font-bold text-sm truncate"
+            style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}
+          >
+            {displayName || "User"}
+          </p>
+          {isLive && (
+            <span
+              className="flex-shrink-0 px-1.5 py-0.5 rounded text-white text-[10px] font-bold"
+              style={{ background: "#ff0050" }}
+            >
+              LIVE
+            </span>
+          )}
+        </div>
         {username ? (
           <p className="text-white/50 text-xs truncate">@{username}</p>
+        ) : null}
+        {realName ? (
+          <p className="text-white/30 text-xs truncate">{realName}</p>
         ) : null}
         <p className="text-white/30 text-xs mt-0.5">
           {formatCount(profile.followerCount)} followers
@@ -498,9 +525,8 @@ export function SearchPage({
   function getCreatorName(creatorPrincipal: Principal): string {
     const profile = profileByPrincipal[creatorPrincipal.toString()];
     if (!profile) return "creator";
-    const raw = profile.name ?? "";
-    const [, username] = raw.includes("|") ? raw.split("|", 2) : [raw, ""];
-    return username || raw || "creator";
+    const { username } = parseName(profile.name ?? "");
+    return username || profile.name || "creator";
   }
 
   // ── Filtered results ──────────────────────────────────────────────────────
@@ -514,18 +540,35 @@ export function SearchPage({
   const filteredVideos = useMemo(() => {
     if (!q) return allVideos.slice(0, 6);
     return allVideos.filter((v) => {
-      return (
+      if (
         v.title.toLowerCase().includes(q) ||
         v.caption.toLowerCase().includes(q) ||
         v.hashtags.some((h) => h.toLowerCase().includes(q))
-      );
+      )
+        return true;
+      // Also match by creator username / display name
+      const creatorProfile = profileByPrincipal[v.creator.toString()];
+      if (creatorProfile) return userMatchesQuery(creatorProfile, q);
+      return false;
     });
-  }, [q, allVideos]);
+  }, [q, allVideos, profileByPrincipal]);
 
   const filteredHashtags = useMemo(() => {
     if (!q) return sortedHashtags.slice(0, 10);
     return sortedHashtags.filter(([tag]) => tag.toLowerCase().includes(q));
   }, [q, sortedHashtags]);
+
+  // ── Live users (isOnline = true, matching query or top online) ───────────
+  const liveUsers = useMemo(() => {
+    return userProfiles
+      .filter(
+        ({ profile, principalStr }) =>
+          principalStr !== selfPrincipalStr &&
+          profile.isOnline &&
+          (!q || userMatchesQuery(profile, q)),
+      )
+      .slice(0, 20);
+  }, [userProfiles, selfPrincipalStr, q]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   const commitSearch = (term: string) => {
@@ -612,7 +655,7 @@ export function SearchPage({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Search @username, name..."
+            placeholder="Search @username, name, real name..."
             className="w-full pl-9 pr-9 py-2.5 rounded-2xl text-white placeholder:text-white/30 outline-none text-sm"
             style={{
               background: "rgba(255,255,255,0.08)",
@@ -663,7 +706,22 @@ export function SearchPage({
               fontFamily: "'Bricolage Grotesque', sans-serif",
             }}
           >
-            {tab}
+            {tab === "Live" ? (
+              <span className="flex items-center gap-1.5">
+                <span
+                  className="w-1.5 h-1.5 rounded-full"
+                  style={{
+                    background:
+                      activeTab === "Live"
+                        ? "#ff0050"
+                        : "rgba(255,255,255,0.4)",
+                  }}
+                />
+                {tab}
+              </span>
+            ) : (
+              tab
+            )}
           </button>
         ))}
       </div>
@@ -858,7 +916,7 @@ export function SearchPage({
                     <Search size={24} className="text-white/30" />
                   </div>
                   <p className="text-white/40 text-sm text-center">
-                    No results for "{query}"
+                    No results for &ldquo;{query}&rdquo;
                   </p>
                   <SuggestedUsers
                     userProfiles={userProfiles}
@@ -936,7 +994,7 @@ export function SearchPage({
                 >
                   <User size={32} className="text-white/20" />
                   <p className="text-white/40 text-sm">
-                    No users found for "{query}"
+                    No users found for &ldquo;{query}&rdquo;
                   </p>
                   <SuggestedUsers
                     userProfiles={userProfiles}
@@ -967,7 +1025,7 @@ export function SearchPage({
                 >
                   <Video size={32} className="text-white/20" />
                   <p className="text-white/40 text-sm">
-                    No videos found for "{query}"
+                    No videos found for &ldquo;{query}&rdquo;
                   </p>
                 </div>
               ) : (
@@ -992,7 +1050,7 @@ export function SearchPage({
                 >
                   <Hash size={32} className="text-white/20" />
                   <p className="text-white/40 text-sm">
-                    No hashtags found for "{query}"
+                    No hashtags found for &ldquo;{query}&rdquo;
                   </p>
                 </div>
               ) : (
@@ -1009,37 +1067,58 @@ export function SearchPage({
                 </div>
               ))}
 
-            {activeTab === "Live" && (
-              <div
-                data-ocid="search.empty_state"
-                className="flex flex-col items-center justify-center py-16 gap-4"
-              >
+            {activeTab === "Live" &&
+              (liveUsers.length === 0 ? (
                 <div
-                  className="w-16 h-16 rounded-2xl flex items-center justify-center"
-                  style={{
-                    background: "rgba(255,0,80,0.1)",
-                    border: "1px solid rgba(255,0,80,0.2)",
-                  }}
+                  data-ocid="search.empty_state"
+                  className="flex flex-col items-center justify-center py-16 gap-4"
                 >
-                  <Radio size={28} style={{ color: "#ff0050" }} />
+                  <div
+                    className="w-16 h-16 rounded-2xl flex items-center justify-center"
+                    style={{
+                      background: "rgba(255,0,80,0.1)",
+                      border: "1px solid rgba(255,0,80,0.2)",
+                    }}
+                  >
+                    <Radio size={28} style={{ color: "#ff0050" }} />
+                  </div>
+                  <div
+                    className="px-3 py-1 rounded-full text-xs font-bold"
+                    style={{ background: "#ff0050", color: "white" }}
+                  >
+                    LIVE
+                  </div>
+                  <p
+                    className="text-white font-bold text-base text-center"
+                    style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}
+                  >
+                    No live streams found
+                  </p>
+                  <p className="text-white/40 text-sm text-center max-w-xs">
+                    {q
+                      ? `No one matching "${query}" is currently live.`
+                      : "No creators are live right now. Check back soon!"}
+                  </p>
                 </div>
-                <div
-                  className="px-3 py-1 rounded-full text-xs font-bold"
-                  style={{ background: "#ff0050", color: "white" }}
-                >
-                  LIVE
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-white/40 text-xs font-semibold uppercase tracking-widest mb-2 px-1">
+                    🔴 Live now
+                  </p>
+                  {liveUsers.map(({ principalStr, profile }, i) => (
+                    <UserCard
+                      key={principalStr}
+                      data-ocid={`search.live_result.${i + 1}`}
+                      principalStr={principalStr}
+                      profile={profile}
+                      index={i + 1}
+                      onTap={handleUserTap}
+                      currentUserPrincipalStr={selfPrincipalStr}
+                      isLive
+                    />
+                  ))}
                 </div>
-                <p
-                  className="text-white font-bold text-base text-center"
-                  style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}
-                >
-                  Live search coming soon
-                </p>
-                <p className="text-white/40 text-sm text-center max-w-xs">
-                  Discover active live streams directly from the LIVE tab.
-                </p>
-              </div>
-            )}
+              ))}
           </div>
         )}
       </div>

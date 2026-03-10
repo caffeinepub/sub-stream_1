@@ -16,6 +16,7 @@ const DISPLAY_NAME_KEY = "ss_display_name";
 const EMAIL_KEY = "ss_email";
 const HAS_USERNAME_KEY = "ss_has_username";
 const USERNAME_KEY = "ss_username";
+const REAL_NAME_KEY = "ss_real_name";
 // Stores the principal string so we can detect identity switches
 const PRINCIPAL_KEY = "ss_principal";
 
@@ -26,6 +27,7 @@ const ALL_SESSION_KEYS = [
   HAS_USERNAME_KEY,
   USERNAME_KEY,
   PRINCIPAL_KEY,
+  REAL_NAME_KEY,
 ];
 
 /** Clears every SUB STREAM session key from localStorage */
@@ -66,11 +68,13 @@ interface AuthContextValue {
     name: string,
     email: string,
     password: string,
+    realName?: string,
   ) => Promise<void>;
   loginWithEmail: (email: string, password: string) => Promise<void>;
   setUsernameOnBackend: (
     displayName: string,
     username: string,
+    realName?: string,
   ) => Promise<void>;
   actor: backendInterface | null;
   refreshProfile: () => Promise<void>;
@@ -246,7 +250,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
    * set HAS_USERNAME_KEY here.
    */
   const registerWithEmail = useCallback(
-    async (name: string, email: string, password: string) => {
+    async (
+      name: string,
+      email: string,
+      password: string,
+      realName?: string,
+    ) => {
       if (!actor) throw new Error("Not connected");
       const hash = btoa(`${email}:${password}`);
 
@@ -261,6 +270,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
       // Persist for fallback identification on subsequent loads
       localStorage.setItem(DISPLAY_NAME_KEY, name);
       localStorage.setItem(EMAIL_KEY, email);
+      if (realName?.trim()) {
+        localStorage.setItem(REAL_NAME_KEY, realName.trim());
+      }
 
       // Fetch profile — user was just registered so it must exist
       const profile = await actor.getCallerUserProfile();
@@ -310,11 +322,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   /**
    * Called from UsernameSetupPage after the user chooses their handle.
-   * Accepts both a display name and username and packs them into the
-   * "DISPLAYNAME|username" storage format.
+   * Accepts a display name, username, and optional real name, packs them into
+   * the "DISPLAYNAME|username|Real Name" storage format.
    */
   const setUsernameOnBackend = useCallback(
-    async (displayName: string, username: string) => {
+    async (displayName: string, username: string, realName?: string) => {
       if (!actor) throw new Error("Not connected");
 
       // If profile doesn't exist yet, ensure it does before updating
@@ -324,7 +336,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
         await ensureUserExists(actor, storedName, storedEmail);
       }
 
-      const packed = packName(displayName, username);
+      // Use realName param first, then fall back to localStorage
+      const effectiveRealName =
+        realName?.trim() || localStorage.getItem(REAL_NAME_KEY) || undefined;
+
+      const packed = packName(displayName, username, effectiveRealName);
       await actor.updateUserProfile(
         packed,
         userProfile?.bio ?? "",
@@ -333,6 +349,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
       localStorage.setItem(HAS_USERNAME_KEY, "1");
       localStorage.setItem(DISPLAY_NAME_KEY, displayName.toUpperCase());
       localStorage.setItem(USERNAME_KEY, sanitizeUsername(username));
+      if (effectiveRealName) {
+        localStorage.setItem(REAL_NAME_KEY, effectiveRealName);
+      }
       await fetchProfile();
     },
     [actor, userProfile, fetchProfile],
