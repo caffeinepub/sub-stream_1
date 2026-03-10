@@ -25,6 +25,7 @@ import type {
   UserProfile,
 } from "../backend.d";
 import { useAuth } from "../context/AuthContext";
+import { useInternetIdentity } from "../hooks/useInternetIdentity";
 import { getDisplayName, getUsername } from "../lib/userFormat";
 import { checkRateLimit } from "../utils/rateLimiter";
 
@@ -761,6 +762,8 @@ function ChatView({
   onBack: () => void;
 }) {
   const { actor, userProfile } = useAuth();
+  const { identity } = useInternetIdentity();
+  const myPrincipal = identity?.getPrincipal();
   const queryClient = useQueryClient();
   const [inputText, setInputText] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -940,9 +943,12 @@ function ChatView({
             <p className="text-white/40 text-sm">Start the conversation</p>
           </div>
         ) : (
-          messages.map((msg) => {
-            // Messages NOT from the other user are ours
-            const isMine = msg.fromUser.toText() !== principalText;
+          messages.map((msg, msgIdx) => {
+            const isLastMsg = msgIdx === messages.length - 1;
+            // Message is mine if sent by the current authenticated user
+            const isMine = myPrincipal
+              ? msg.fromUser.toText() === myPrincipal.toText()
+              : msg.fromUser.toText() !== principalText;
             return (
               <motion.div
                 key={msg.id.toString()}
@@ -976,6 +982,14 @@ function ChatView({
                   >
                     {formatTime(msg.createdAt)}
                   </span>
+                  {isMine && isLastMsg && msg.isRead && (
+                    <span
+                      className="text-[10px] px-1"
+                      style={{ color: "#ff0050", textAlign: "right" }}
+                    >
+                      Seen
+                    </span>
+                  )}
                 </div>
               </motion.div>
             );
