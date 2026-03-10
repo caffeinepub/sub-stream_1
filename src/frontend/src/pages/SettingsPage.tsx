@@ -50,12 +50,12 @@ export function SettingsPage({
   return (
     <div
       data-ocid="settings.page"
-      className="min-h-screen w-full flex flex-col"
-      style={{ background: "#000" }}
+      className="w-full flex flex-col"
+      style={{ height: "100vh", overflow: "hidden", background: "#000" }}
     >
       {/* Header */}
       <div
-        className="sticky top-0 z-30 flex items-center gap-3 px-4 pt-10 pb-3"
+        className="sticky top-0 z-30 flex items-center gap-3 px-4 pt-10 pb-3 flex-shrink-0"
         style={{
           background: "rgba(0,0,0,0.9)",
           backdropFilter: "blur(16px)",
@@ -81,7 +81,8 @@ export function SettingsPage({
       </div>
 
       <motion.div
-        className="flex-1 flex flex-col px-4 pt-6 pb-10"
+        className="flex flex-col px-4 pt-6 pb-10"
+        style={{ flex: 1, overflowY: "auto", minHeight: 0 }}
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
@@ -220,7 +221,7 @@ export function SettingsPage({
         >
           <button
             type="button"
-            data-ocid="settings.blocked_users_button"
+            data-ocid="settings.privacy_safety_button"
             onClick={onOpenBlockedUsers}
             className="w-full flex items-center gap-3 px-4 py-4 text-left transition-all active:scale-[0.99]"
           >
@@ -282,13 +283,13 @@ export function SettingsPage({
           </div>
         </div>
 
-        {/* App info section */}
+        {/* About section */}
         <p className="text-white/30 text-xs font-semibold tracking-widest uppercase mb-3 px-1">
           About
         </p>
 
         <div
-          className="rounded-2xl overflow-hidden mb-8"
+          className="rounded-2xl overflow-hidden mb-6"
           style={{
             background: "rgba(255,255,255,0.04)",
             border: "1px solid rgba(255,255,255,0.07)",
@@ -301,8 +302,23 @@ export function SettingsPage({
             <span className="text-white/60 text-sm">Version</span>
             <span className="text-white/30 text-sm">1.0.0</span>
           </div>
+        </div>
+
+        {/* Admin section */}
+        <p className="text-white/30 text-xs font-semibold tracking-widest uppercase mb-3 px-1">
+          Admin
+        </p>
+
+        <div
+          className="rounded-2xl overflow-hidden mb-8"
+          style={{
+            background: "rgba(255,255,255,0.04)",
+            border: "1px solid rgba(255,255,255,0.07)",
+          }}
+        >
           <button
             type="button"
+            data-ocid="settings.admin_review_button"
             onClick={onOpenAdmin}
             className="w-full flex items-center justify-between px-4 py-4 text-left transition-all active:scale-[0.99]"
           >
@@ -310,9 +326,6 @@ export function SettingsPage({
             <ChevronRight size={16} className="text-white/20" />
           </button>
         </div>
-
-        {/* Spacer */}
-        <div className="flex-1" />
 
         {/* Logout button */}
         <motion.button
@@ -394,7 +407,22 @@ export function SettingsPage({
           </motion.div>
         )}
 
-        <p className="text-white/15 text-xs text-center mt-6">
+        {/* Delete Account */}
+        <motion.button
+          type="button"
+          data-ocid="settings.delete_button"
+          whileTap={{ scale: 0.97 }}
+          className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl font-semibold text-sm transition-all duration-200 mt-3"
+          style={{
+            background: "rgba(255,255,255,0.02)",
+            border: "1px solid rgba(255,255,255,0.06)",
+            color: "rgba(255,255,255,0.2)",
+          }}
+        >
+          Delete Account
+        </motion.button>
+
+        <p className="text-white/15 text-xs text-center mt-6 mb-4">
           © {new Date().getFullYear()}.{" "}
           <a
             href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(window.location.hostname)}`}
