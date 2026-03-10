@@ -1,3 +1,4 @@
+import { Switch } from "@/components/ui/switch";
 import {
   ArrowLeft,
   ChevronRight,
@@ -5,10 +6,11 @@ import {
   LogOut,
   RefreshCw,
   Shield,
+  ShieldCheck,
   User,
 } from "lucide-react";
 import { motion } from "motion/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { getDisplayName, getUsername } from "../lib/userFormat";
 
@@ -17,6 +19,7 @@ interface SettingsPageProps {
   onLogout: () => void;
   onOpenCreatorPayments?: () => void;
   onOpenBlockedUsers?: () => void;
+  onOpenAdmin?: () => void;
 }
 
 export function SettingsPage({
@@ -24,9 +27,20 @@ export function SettingsPage({
   onLogout,
   onOpenCreatorPayments,
   onOpenBlockedUsers,
+  onOpenAdmin,
 }: SettingsPageProps) {
   const { userProfile, clearAllSessions } = useAuth();
   const [confirmReset, setConfirmReset] = useState(false);
+  const [twoFaEnabled, setTwoFaEnabled] = useState(() => {
+    return localStorage.getItem("substream_2fa_enabled") === "true";
+  });
+
+  useEffect(() => {
+    localStorage.setItem(
+      "substream_2fa_enabled",
+      twoFaEnabled ? "true" : "false",
+    );
+  }, [twoFaEnabled]);
 
   const rawName = userProfile?.name || "";
   const displayName = getDisplayName(rawName) || "Anonymous";
@@ -229,6 +243,45 @@ export function SettingsPage({
           </button>
         </div>
 
+        {/* Security section */}
+        <p className="text-white/30 text-xs font-semibold tracking-widest uppercase mb-3 px-1">
+          Security
+        </p>
+
+        <div
+          className="rounded-2xl overflow-hidden mb-6"
+          style={{
+            background: "rgba(255,255,255,0.04)",
+            border: "1px solid rgba(255,255,255,0.07)",
+          }}
+        >
+          <div className="flex items-center gap-3 px-4 py-4">
+            <div
+              className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
+              style={{ background: "rgba(34,197,94,0.15)" }}
+            >
+              <ShieldCheck size={18} style={{ color: "#22c55e" }} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p
+                className="text-white font-semibold text-sm"
+                style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}
+              >
+                Two-Factor Authentication
+              </p>
+              <p className="text-white/40 text-xs mt-0.5">
+                Require a code when logging in
+              </p>
+            </div>
+            <Switch
+              data-ocid="settings.2fa_toggle"
+              checked={twoFaEnabled}
+              onCheckedChange={setTwoFaEnabled}
+              aria-label="Toggle two-factor authentication"
+            />
+          </div>
+        </div>
+
         {/* App info section */}
         <p className="text-white/30 text-xs font-semibold tracking-widest uppercase mb-3 px-1">
           About
@@ -241,10 +294,21 @@ export function SettingsPage({
             border: "1px solid rgba(255,255,255,0.07)",
           }}
         >
-          <div className="flex items-center justify-between px-4 py-4">
+          <div
+            className="flex items-center justify-between px-4 py-4 border-b"
+            style={{ borderColor: "rgba(255,255,255,0.07)" }}
+          >
             <span className="text-white/60 text-sm">Version</span>
             <span className="text-white/30 text-sm">1.0.0</span>
           </div>
+          <button
+            type="button"
+            onClick={onOpenAdmin}
+            className="w-full flex items-center justify-between px-4 py-4 text-left transition-all active:scale-[0.99]"
+          >
+            <span className="text-white/40 text-sm">Admin Review</span>
+            <ChevronRight size={16} className="text-white/20" />
+          </button>
         </div>
 
         {/* Spacer */}

@@ -4,6 +4,7 @@ import {
   Heart,
   Link,
   MessageCircle,
+  MoreVertical,
   Music2,
   Play,
   Send,
@@ -24,6 +25,7 @@ import { getDisplayName, getUsername } from "../lib/userFormat";
 import { getDistributionStage } from "../utils/recommendationEngine";
 import { CommentPanel } from "./CommentPanel";
 import { OnlineDot } from "./OnlineDot";
+import { ReportModal } from "./ReportModal";
 
 // Gradient palette for video placeholders
 const GRADIENTS = [
@@ -81,6 +83,7 @@ export function VideoCard({
   const [commentPanelOpen, setCommentPanelOpen] = useState(false);
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
   const [openGiftOnComment, setOpenGiftOnComment] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
 
   // onCommentPanelChange is called synchronously in handlers (not via useEffect)
   // to avoid a 1-render delay that caused BottomNav to remain visible for one frame.
@@ -843,6 +846,30 @@ export function VideoCard({
           </span>
         </button>
 
+        {/* Report */}
+        <button
+          type="button"
+          data-ocid="video.report_button"
+          className="flex flex-col items-center gap-1 group"
+          aria-label="More options"
+          onClick={(e) => {
+            e.stopPropagation();
+            setReportOpen(true);
+          }}
+        >
+          <div className="w-[52px] h-[52px] flex items-center justify-center">
+            <MoreVertical
+              size={28}
+              strokeWidth={2}
+              stroke="white"
+              className="transition-all duration-150 group-active:scale-125"
+            />
+          </div>
+          <span className="text-sm font-medium" style={{ color: "white" }}>
+            More
+          </span>
+        </button>
+
         {/* Creator profile circle */}
         <div className="flex flex-col items-center gap-1">
           <button
@@ -924,6 +951,14 @@ export function VideoCard({
           )}
         </div>
       </div>
+
+      {/* Report modal */}
+      <ReportModal
+        isOpen={reportOpen}
+        onClose={() => setReportOpen(false)}
+        contentType="video"
+        contentId={video.id.toString()}
+      />
 
       {/* Comment panel — standalone component */}
       <CommentPanel

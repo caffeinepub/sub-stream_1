@@ -21,6 +21,7 @@ import {
   ProfileVideoPlayer,
   VideoDurationBadge,
 } from "../components/ProfileVideoPlayer";
+import { ReportModal } from "../components/ReportModal";
 import { useAuth } from "../context/AuthContext";
 import { useNotifications } from "../context/NotificationsContext";
 import { useFollowSystem } from "../hooks/useFollowSystem";
@@ -85,6 +86,7 @@ export function UserProfilePage({
 
   // More options menu state
   const [menuOpen, setMenuOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
   // Block confirmation dialog state
   const [blockConfirmOpen, setBlockConfirmOpen] = useState(false);
   // Friends sheet state
@@ -853,7 +855,7 @@ export function UserProfilePage({
                   data-ocid="user-profile.report_button"
                   onClick={() => {
                     setMenuOpen(false);
-                    toast.success("Reported");
+                    setReportOpen(true);
                   }}
                   className="w-full flex items-center gap-3 px-4 py-4 rounded-2xl transition-all active:scale-[0.98]"
                   style={{
@@ -1023,6 +1025,14 @@ export function UserProfilePage({
           </>
         )}
       </AnimatePresence>
+
+      {/* Report modal */}
+      <ReportModal
+        isOpen={reportOpen}
+        onClose={() => setReportOpen(false)}
+        contentType="profile"
+        contentId={principalStr}
+      />
     </div>
   );
 }

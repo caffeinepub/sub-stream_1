@@ -1,62 +1,47 @@
-# Sub Stream
+# Sub Stream — Secure Login & Signup System
 
 ## Current State
 
-### Follow System
-- Backend: `followMap` stores `follower → Set<following>`. `follow()`, `unfollow()`, `isFollowing()`, `getFollowerCount()`, `getFollowingCount()` (inferred from `followingCount` on User record) all exist.
-- `UserProfilePage`: Uses `useQuery` for `isFollowing` and a separate `followerCount` query. Optimistic update is in place but stale data can cause the button to flash "Follow" briefly after a page re-render because the queries have a 30s staleTime and may not be refetched.
-- `LiveStreamViewPage`: Has a separate local `followed` boolean state initialized to `false` on every mount — it never checks the backend, so it always starts as "Follow" regardless of whether the user is actually following the host.
-- `ProfilePage`: Shows own follower/following counts from `userProfile` cache, which is not invalidated after a follow/unfollow from other pages.
-- Counts: `getFollowerCount` iterates `allUserIds` — accurate. But `followingCount` on `User` is a denormalized counter that is never updated by the backend `follow()`/`unfollow()` functions (they only mutate `followMap`). So the "Following" count displayed on profiles is always 0.
+The app has a working auth flow:
+- `LoginPage` — Internet Identity + email/password login, basic 2FA step
+- `RegisterPage` — email/password registration with math CAPTCHA and device limit
+- `UsernameSetupPage` — username picker with availability check (case-insensitive)
+- `AuthContext` — manages login state, email registration, II login
 
-### Livestream UI (LiveStreamViewPage)
-- Right-side vertical icon column exists (Like, Share, Gift, Mute, Settings, etc.) that the user wants replaced.
-- Host controls are in a separate bottom sheet accessed via a settings button.
-- No dedicated power-button menu at top-right for "End live / Stream settings / Live info".
-- Bottom toolbar already has some horizontal buttons but is cluttered with extra controls.
-- Comments rendered as a simple chat list with no tap-to-action system.
+Limitations of the current system:
+- No phone number signup path
+- No Google/Apple login buttons
+- No email/phone verification code step after signup
+- 2FA resend has no 30s cooldown, no attempt limit, no 5-min expiry
+- Login has no device fingerprinting or new-device detection
+- Username similarity check only does exact lowercase match — no scam similarity detection
 
 ## Requested Changes (Diff)
 
 ### Add
-- Backend: `getFollowingCount(userId: Principal): Nat` — derived from `followMap` (accurate, not cached), mirroring `getFollowerCount`.
-- `LiveStreamViewPage`: Power button (top-right) that opens a small popup menu with: End live, Stream settings, Live info.
-- `LiveStreamViewPage`: Tap-on-comment action sheet: Mute user, Make moderator, Remove comment, Block user.
-- `LiveStreamViewPage`: Initial follow state loaded from backend (`isFollowing`) so the Follow button starts in the correct state.
+- `SignupMethodPage` — choose between Phone, Email, Google (coming soon), Apple (coming soon)
+- `PhoneSignupPage` — phone number input + 6-digit verification step
+- `VerificationCodeStep` component — reusable 6-digit OTP UI with:
+  - 5-minute code expiry countdown (shown as MM:SS timer)
+  - Max 3 attempts (disables input after 3 failures, shows "Too many attempts" + retry button)
+  - 30-second resend cooldown (button disabled with countdown)
+  - Code generated client-side (random 6-digit, shown as demo since email is disabled)
+- Device fingerprinting on login: store `device_id` (uuid from localStorage), `device_model` (from user agent), `ip_address` (placeholder "detected" text since backend can't fetch real IP in frontend)
+- New-device detection: on email login, compare current `device_id` to stored `known_device_id_<email>` in localStorage; if new device, require 6-digit verification before completing login
+- Username similarity check in `UsernameSetupPage`: flag usernames that are too similar to existing ones (Levenshtein distance <= 2, or contain substring matches of existing usernames)
 
 ### Modify
-- Backend `follow()`: After adding to `followMap`, also increment `followingCount` on the caller's User record.
-- Backend `unfollow()`: After removing from `followMap`, also decrement `followingCount` on the caller's User record (min 0).
-- `UserProfilePage` `isFollowing` query: Reduce staleTime to 0 so it always refetches when the page mounts. Remove optimistic followerCount manipulation on mutate (let invalidation handle it) to avoid count flicker.
-- `LiveStreamViewPage`: Remove all vertical right-side icon buttons. Replace with a horizontal bottom toolbar: Co-host | Invite guest | Comments | Share | Effects | More (...). Remove old host-controls bottom sheet entry point from bottom bar. Move End Live and Stream Settings into the new power-button top-right menu.
-- `LiveStreamViewPage`: "More" button opens a menu with: Switch camera, Gift box, Mute microphone, End live, Stream settings.
-- `LiveStreamViewPage`: Follow button in top-left should initialize its state by calling `actor.isFollowing(hostPrincipal)` on mount.
-- `ProfilePage` and `UserProfilePage`: Read `followingCount` from `getFollowingCount()` backend call rather than the stale `user.followingCount` field.
+- `RegisterPage` → add signup method selector at top (Phone / Email), keep existing email form, add email verification code step after form submission before account is created
+- `LoginPage` → add Phone login tab, add Google and Apple buttons ("Coming Soon" state), add device info collection and new-device guard
+- `UsernameSetupPage` → improve similarity detection in availability check
 
 ### Remove
-- `LiveStreamViewPage`: Vertical right-side icon column (Like, Share, Gift individual buttons stacked vertically).
-- `LiveStreamViewPage`: Separate "Host Controls" bottom sheet button in the bottom bar.
+- Nothing removed
 
 ## Implementation Plan
 
-1. **Backend** (`main.mo`):
-   - Add `getFollowingCount(userId: Principal): async Nat` — scans `followMap.get(userId)?.size()`.
-   - In `follow()`: after updating `followMap`, look up caller's User record and increment `followingCount` by 1.
-   - In `unfollow()`: after updating `followMap`, look up caller's User record and decrement `followingCount` (floor 0).
-
-2. **Frontend — Follow button state** (`UserProfilePage.tsx`):
-   - Set `staleTime: 0` on the `isFollowing` query so it fetches fresh on every mount.
-   - Remove optimistic `followerCount` setQueryData in `onMutate`; rely only on `invalidateQueries` in `onSuccess`.
-   - Call `actor.getFollowingCount(principal)` for the Following stat instead of `profile.followingCount`.
-
-3. **Frontend — Follow button on LiveStreamViewPage**:
-   - On mount, if `actor` and `stream.hostPrincipal` are available, call `actor.isFollowing(hostPrincipal)` and seed the `followed` state from the result.
-
-4. **Frontend — Livestream UI redesign** (`LiveStreamViewPage.tsx`):
-   - Remove vertical right-side icon column.
-   - Top-right: replace Share + Close buttons with a single power (⏻) button that opens an inline dropdown with: End live (host only), Stream settings (host only), Live info.
-   - Keep top-left host info + Follow button unchanged.
-   - Bottom controls: horizontal scrollable row of icon+label pills — Co-host | Invite guest | Comments | Share | Effects | More (...).
-   - "More" menu: Switch camera, Gift box, Mute microphone, End live, Stream settings.
-   - Comments overlay: make each message tappable; tapping opens an action sheet — Mute user, Make moderator, Remove comment, Block user.
-   - Keep all existing battle mode, gift, chat, heart burst, and engagement bar logic intact.
+1. Create `VerificationCodeStep` component with 5-min expiry, 3-attempt limit, 30s resend cooldown
+2. Update `RegisterPage` to show signup method choice (Phone / Email / Google / Apple), add email verification step after form fill, add phone signup path
+3. Update `LoginPage` to add Phone tab, Google/Apple coming-soon buttons, device fingerprinting, new-device detection flow
+4. Update `UsernameSetupPage` to add Levenshtein similarity check against existing usernames
+5. Create `deviceInfo.ts` utility for generating/storing device_id, detecting device_model from user agent

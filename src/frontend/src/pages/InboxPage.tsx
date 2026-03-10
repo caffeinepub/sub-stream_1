@@ -26,6 +26,7 @@ import type {
 } from "../backend.d";
 import { useAuth } from "../context/AuthContext";
 import { getDisplayName, getUsername } from "../lib/userFormat";
+import { checkRateLimit } from "../utils/rateLimiter";
 
 // ─── LiveNowSection ────────────────────────────────────────────────────────────
 
@@ -759,7 +760,7 @@ function ChatView({
   otherUserProfile: UserProfile | null;
   onBack: () => void;
 }) {
-  const { actor } = useAuth();
+  const { actor, userProfile } = useAuth();
   const queryClient = useQueryClient();
   const [inputText, setInputText] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -817,6 +818,15 @@ function ChatView({
   function handleSend() {
     const text = inputText.trim();
     if (!text || sendMutation.isPending) return;
+    const myPrincipalText = userProfile?.email ?? "anon";
+    const { allowed, warningMessage } = checkRateLimit(
+      "message",
+      myPrincipalText,
+    );
+    if (!allowed) {
+      toast.error(warningMessage ?? "Sending too fast");
+      return;
+    }
     setInputText("");
     sendMutation.mutate(text);
   }

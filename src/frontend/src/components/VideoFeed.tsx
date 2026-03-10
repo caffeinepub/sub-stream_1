@@ -594,6 +594,32 @@ export function VideoFeed({
     );
   }
 
+  // ─── For You tab — no public videos yet ──────────────────────────────────
+  if (feedTab === "For You" && rankedVideos.length === 0 && !isLoading) {
+    return (
+      <div
+        data-ocid="feed.empty_state"
+        className="w-full h-screen flex flex-col items-center justify-center bg-black gap-4 px-8"
+      >
+        <div
+          className="w-16 h-16 rounded-full flex items-center justify-center text-3xl"
+          style={{ background: "rgba(255,255,255,0.05)" }}
+        >
+          📹
+        </div>
+        <p
+          className="text-white/60 text-base font-semibold text-center"
+          style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}
+        >
+          No content available yet
+        </p>
+        <p className="text-white/30 text-sm text-center">
+          Be the first to upload a video!
+        </p>
+      </div>
+    );
+  }
+
   // ─── No videos at all ─────────────────────────────────────────────────────
   if (rankedVideos.length === 0) {
     return (

@@ -23,6 +23,7 @@ import { useInternetIdentity } from "./hooks/useInternetIdentity";
 import { useLiveFollowedPoller } from "./hooks/useLiveFollowedPoller";
 import { useLiveInvitePoller } from "./hooks/useLiveInvitePoller";
 import { getLiveStatusStatic } from "./hooks/useLiveStatus";
+import { AdminReviewPage } from "./pages/AdminReviewPage";
 import { BlockedUsersPage } from "./pages/BlockedUsersPage";
 import { CoinRechargePage } from "./pages/CoinRechargePage";
 import { CreateFlowPage } from "./pages/CreateFlowPage";
@@ -69,7 +70,8 @@ type Screen =
   | "notifications"
   | "followers-list"
   | "following-list"
-  | "blocked-users";
+  | "blocked-users"
+  | "admin";
 
 // ─── Loading Screen ────────────────────────────────────────────────────────────
 function LoadingScreen() {
@@ -576,6 +578,7 @@ function AppShell() {
                 setScreen("payment-settings");
               }}
               onOpenBlockedUsers={() => setScreen("blocked-users")}
+              onOpenAdmin={() => setScreen("admin")}
             />
           </motion.div>
         )}
@@ -592,6 +595,21 @@ function AppShell() {
             style={{ background: "#000" }}
           >
             <BlockedUsersPage onBack={() => setScreen("settings")} />
+          </motion.div>
+        )}
+
+        {/* Admin Review page */}
+        {effectiveScreen === "admin" && (
+          <motion.div
+            key="admin"
+            initial={{ opacity: 0, x: 60 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 60 }}
+            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed inset-0 z-50 overflow-y-auto"
+            style={{ background: "#000" }}
+          >
+            <AdminReviewPage onBack={() => setScreen("settings")} />
           </motion.div>
         )}
 

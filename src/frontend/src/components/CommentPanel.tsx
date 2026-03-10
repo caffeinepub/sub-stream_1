@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AtSign,
   CornerDownRight,
+  Flag,
   Gift,
   Heart,
   ImageIcon,
@@ -21,6 +22,8 @@ import { toast } from "sonner";
 import type { Comment } from "../backend.d";
 import { useAuth } from "../context/AuthContext";
 import { getDisplayName, getUsername } from "../lib/userFormat";
+import { checkRateLimit } from "../utils/rateLimiter";
+import { ReportModal } from "./ReportModal";
 
 // Heights
 const NAV_HEIGHT = 80; // bottom nav
@@ -135,6 +138,7 @@ export function CommentItem({
   onReply,
   onNavigateToProfile,
 }: CommentItemProps) {
+  const [reportOpen, setReportOpen] = useState(false);
   const { actor } = useAuth();
   const authorStr = comment.author.toString();
 
@@ -223,17 +227,36 @@ export function CommentItem({
           <p className="text-white/80 text-sm leading-snug">{comment.text}</p>
         )}
 
-        <button
-          type="button"
-          data-ocid={`${scope}.comment.reply_button.${idx + 1}`}
-          onClick={() => onReply(username || displayName.toLowerCase())}
-          className="flex items-center gap-1 mt-1.5"
-          aria-label="Reply to comment"
-        >
-          <span className="text-white/40 text-[10px] hover:text-white/70 transition-colors">
-            Reply
-          </span>
-        </button>
+        <div className="flex items-center gap-3 mt-1.5">
+          <button
+            type="button"
+            data-ocid={`${scope}.comment.reply_button.${idx + 1}`}
+            onClick={() => onReply(username || displayName.toLowerCase())}
+            className="flex items-center gap-1"
+            aria-label="Reply to comment"
+          >
+            <span className="text-white/40 text-[10px] hover:text-white/70 transition-colors">
+              Reply
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setReportOpen(true)}
+            className="flex items-center gap-1"
+            aria-label="Report comment"
+          >
+            <Flag
+              size={10}
+              className="text-white/25 hover:text-white/50 transition-colors"
+            />
+          </button>
+        </div>
+        <ReportModal
+          isOpen={reportOpen}
+          onClose={() => setReportOpen(false)}
+          contentType="comment"
+          contentId={comment.id.toString()}
+        />
       </div>
 
       {/* Like */}
@@ -448,6 +471,14 @@ export function CommentPanel({
       toast.error("Log in to comment");
       return;
     }
+    const { allowed, warningMessage } = checkRateLimit(
+      "comment",
+      callerPrincipal,
+    );
+    if (!allowed) {
+      toast.error(warningMessage ?? "Posting too fast");
+      return;
+    }
 
     const replyToId = replyingTo?.id ?? null;
     setCommentText("");
@@ -477,6 +508,7 @@ export function CommentPanel({
     queryClient,
     commentsQueryKey,
     interactionQueryKey,
+    callerPrincipal,
   ]);
 
   // ── Like/unlike comment ────────────────────────────────────────────────────

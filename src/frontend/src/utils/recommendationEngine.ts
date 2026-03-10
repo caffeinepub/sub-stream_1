@@ -119,7 +119,6 @@ function hashtagAffinityBoost(
 
 /**
  * Rank all videos for the personalised "For You" feed.
- * Filters out the caller's own uploads.
  * Stage 1 videos receive a boost to reach initial test audiences.
  */
 export function rankVideosForUser(
@@ -128,20 +127,24 @@ export function rankVideosForUser(
 ): Video[] {
   const interests = getUserInterests(callerPrincipal);
 
-  const scored = videos
-    .filter((v) => v.creator.toString() !== callerPrincipal)
-    .map((v) => {
-      const engagementScore = computeVideoScore(v);
-      const affinityBoost = hashtagAffinityBoost(v, interests);
-      const stage = getDistributionStage(v);
-      // Stage 1 videos get extra boost to seed their test audience
-      const stageBoost = stage === 1 ? STAGE_1_BOOST : 0;
-      const finalRank = engagementScore + affinityBoost + stageBoost;
-      return { video: v, finalRank };
-    });
+  const scored = videos.map((v) => {
+    const engagementScore = computeVideoScore(v);
+    const affinityBoost = hashtagAffinityBoost(v, interests);
+    const stage = getDistributionStage(v);
+    // Stage 1 videos get extra boost to seed their test audience
+    const stageBoost = stage === 1 ? STAGE_1_BOOST : 0;
+    const finalRank = engagementScore + affinityBoost + stageBoost;
+    return { video: v, finalRank };
+  });
 
-  scored.sort((a, b) => b.finalRank - a.finalRank);
-  return scored.map((s) => s.video);
+  scored.sort((a, b) => {
+    // Primary: newest first by createdAt, fallback to finalRank
+    const aTime = Number(a.video.createdAt ?? 0n);
+    const bTime = Number(b.video.createdAt ?? 0n);
+    if (bTime !== aTime) return bTime - aTime;
+    return b.finalRank - a.finalRank;
+  });
+  return scored.slice(0, 20).map((s) => s.video);
 }
 
 // ─── Following Feed ───────────────────────────────────────────────────────────
