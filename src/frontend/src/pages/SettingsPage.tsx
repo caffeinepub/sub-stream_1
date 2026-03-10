@@ -29,7 +29,7 @@ export function SettingsPage({
   onOpenBlockedUsers,
   onOpenAdmin,
 }: SettingsPageProps) {
-  const { userProfile, clearAllSessions } = useAuth();
+  const { userProfile, clearAllSessions, isAdmin } = useAuth();
   const [confirmReset, setConfirmReset] = useState(false);
   const [twoFaEnabled, setTwoFaEnabled] = useState(() => {
     return localStorage.getItem("substream_2fa_enabled") === "true";
@@ -304,28 +304,42 @@ export function SettingsPage({
           </div>
         </div>
 
-        {/* Admin section */}
-        <p className="text-white/30 text-xs font-semibold tracking-widest uppercase mb-3 px-1">
-          Admin
-        </p>
+        {/* Admin section - only visible to admins */}
+        {isAdmin && (
+          <>
+            <div className="flex items-center gap-2 mb-3 px-1">
+              <p className="text-red-400 text-xs font-semibold tracking-widest uppercase">
+                Admin
+              </p>
+              <span
+                className="text-xs font-bold px-2 py-0.5 rounded-full"
+                style={{ background: "rgba(255,0,80,0.2)", color: "#ff0050" }}
+              >
+                ADMIN
+              </span>
+            </div>
 
-        <div
-          className="rounded-2xl overflow-hidden mb-8"
-          style={{
-            background: "rgba(255,255,255,0.04)",
-            border: "1px solid rgba(255,255,255,0.07)",
-          }}
-        >
-          <button
-            type="button"
-            data-ocid="settings.admin_review_button"
-            onClick={onOpenAdmin}
-            className="w-full flex items-center justify-between px-4 py-4 text-left transition-all active:scale-[0.99]"
-          >
-            <span className="text-white/40 text-sm">Admin Review</span>
-            <ChevronRight size={16} className="text-white/20" />
-          </button>
-        </div>
+            <div
+              className="rounded-2xl overflow-hidden mb-8"
+              style={{
+                background: "rgba(255,0,80,0.06)",
+                border: "1px solid rgba(255,0,80,0.2)",
+              }}
+            >
+              <button
+                type="button"
+                data-ocid="settings.admin_review_button"
+                onClick={onOpenAdmin}
+                className="w-full flex items-center justify-between px-4 py-4 text-left transition-all active:scale-[0.99]"
+              >
+                <span className="text-red-400 text-sm font-medium">
+                  Admin Dashboard
+                </span>
+                <ChevronRight size={16} className="text-red-400/50" />
+              </button>
+            </div>
+          </>
+        )}
 
         {/* Logout button */}
         <motion.button

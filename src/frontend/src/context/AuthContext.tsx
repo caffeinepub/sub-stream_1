@@ -78,7 +78,10 @@ interface AuthContextValue {
   ) => Promise<void>;
   actor: backendInterface | null;
   refreshProfile: () => Promise<void>;
+  isAdmin: boolean;
 }
+
+const ADMIN_EMAIL = "babucarrngum66@gmail.com";
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
@@ -363,6 +366,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
     profileFetchedRef.current = true;
   }, [fetchProfile]);
 
+  const isAdmin = userProfile?.email?.toLowerCase() === ADMIN_EMAIL;
+
   const value: AuthContextValue = {
     isAuthenticated,
     isInitializing,
@@ -376,6 +381,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setUsernameOnBackend,
     actor,
     refreshProfile,
+    isAdmin,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

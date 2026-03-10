@@ -1,5 +1,5 @@
 import { Toaster } from "@/components/ui/sonner";
-import { Zap } from "lucide-react";
+import { ShieldOff, Zap } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { BattleCountdown } from "./components/BattleCountdown";
@@ -130,6 +130,54 @@ function LoadingScreen() {
   );
 }
 
+// ─── Access Denied Screen ─────────────────────────────────────────────────────
+function AccessDeniedScreen({ onBack }: { onBack: () => void }) {
+  return (
+    <div
+      data-ocid="admin.access_denied_page"
+      className="fixed inset-0 flex flex-col items-center justify-center bg-black px-6 text-center"
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.85 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.4, ease: [0.34, 1.56, 0.64, 1] }}
+        className="flex flex-col items-center gap-4"
+      >
+        <div
+          className="w-20 h-20 rounded-full flex items-center justify-center"
+          style={{
+            background: "rgba(255,0,80,0.12)",
+            border: "1px solid rgba(255,0,80,0.25)",
+          }}
+        >
+          <ShieldOff size={36} style={{ color: "#ff0050" }} />
+        </div>
+        <h1
+          className="text-white text-2xl font-bold"
+          style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}
+        >
+          Access Denied
+        </h1>
+        <p className="text-white/40 text-sm max-w-xs">
+          This area is restricted to administrators only.
+        </p>
+        <button
+          type="button"
+          data-ocid="admin.access_denied_back_button"
+          onClick={onBack}
+          className="mt-4 px-6 py-3 rounded-full text-white text-sm font-semibold transition-all active:scale-95"
+          style={{
+            background: "rgba(255,255,255,0.08)",
+            border: "1px solid rgba(255,255,255,0.12)",
+          }}
+        >
+          Go Back
+        </button>
+      </motion.div>
+    </div>
+  );
+}
+
 // ─── Friends placeholder ───────────────────────────────────────────────────────
 function FriendsScreen() {
   return (
@@ -149,6 +197,7 @@ function AppShell() {
     logout,
     userProfile,
     actor,
+    isAdmin,
   } = useAuth();
   const { identity } = useInternetIdentity();
   const myPrincipal = identity?.getPrincipal().toString() ?? "";
@@ -609,7 +658,11 @@ function AppShell() {
             className="fixed inset-0 z-50 overflow-y-auto"
             style={{ background: "#000" }}
           >
-            <AdminReviewPage onBack={() => setScreen("settings")} />
+            {isAdmin ? (
+              <AdminReviewPage onBack={() => setScreen("settings")} />
+            ) : (
+              <AccessDeniedScreen onBack={() => setScreen("settings")} />
+            )}
           </motion.div>
         )}
 
