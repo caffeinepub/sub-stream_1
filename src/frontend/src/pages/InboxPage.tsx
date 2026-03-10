@@ -1,10 +1,11 @@
-import type { Principal } from "@icp-sdk/core/principal";
+import { Principal } from "@icp-sdk/core/principal";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AtSign,
   Bell,
   ChevronLeft,
   Film,
+  ImageIcon,
   MessageCircle,
   MoreHorizontal,
   Search,
@@ -17,6 +18,7 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import type {
   ConversationSummary,
   DirectMessage,
@@ -857,21 +859,33 @@ function ChatView({
             size={38}
             showOnline
           />
-          <div className="min-w-0">
+          <div className="min-w-0" data-ocid="chat.online_status">
             <h2
               className="text-white font-bold text-base leading-tight truncate"
               style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}
             >
               {display || username || `${principalText.slice(0, 8)}…`}
             </h2>
-            {username && (
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <span
+                className="w-2 h-2 rounded-full flex-shrink-0"
+                style={{
+                  background: otherUserProfile?.isOnline
+                    ? "#22c55e"
+                    : "#6b7280",
+                }}
+              />
               <p
-                className="text-xs truncate"
-                style={{ color: "rgba(255,255,255,0.4)" }}
+                className="text-xs"
+                style={{
+                  color: otherUserProfile?.isOnline
+                    ? "#22c55e"
+                    : "rgba(255,255,255,0.35)",
+                }}
               >
-                @{username}
+                {otherUserProfile?.isOnline ? "Online" : "Offline"}
               </p>
-            )}
+            </div>
           </div>
         </div>
 
@@ -975,6 +989,15 @@ function ChatView({
           aria-label="Emoji"
         >
           <Smile size={20} />
+        </button>
+        <button
+          type="button"
+          data-ocid="chat.image_button"
+          onClick={() => toast("Image sharing coming soon")}
+          className="w-9 h-9 rounded-full flex items-center justify-center text-white/40 hover:text-white/70 transition-colors flex-shrink-0"
+          aria-label="Image upload"
+        >
+          <ImageIcon size={18} />
         </button>
 
         <input
@@ -1094,14 +1117,34 @@ function ActivitySheetContent({ type }: { type: ActivitySheet }) {
 
 export function InboxPage({
   onJoinLiveStream,
+  openChatFor,
 }: {
   onJoinLiveStream?: (principalStr: string, displayName: string) => void;
+  openChatFor?: string;
 }) {
   const { actor, isAuthenticated } = useAuth();
   const queryClient = useQueryClient();
   const [activeChat, setActiveChat] = useState<ActiveChat | null>(null);
   const [activitySheet, setActivitySheet] = useState<ActivitySheet>(null);
   const [showUserPicker, setShowUserPicker] = useState(false);
+
+  // Auto-open chat when navigated via DM button from profile
+  const openChatForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!openChatFor || !actor || openChatForRef.current === openChatFor)
+      return;
+    openChatForRef.current = openChatFor;
+    const p = Principal.fromText(openChatFor);
+    actor
+      .getUserProfile(p)
+      .then((profile) => {
+        setActiveChat({ otherUserPrincipal: p, otherUserProfile: profile });
+      })
+      .catch(() => {
+        const p2 = Principal.fromText(openChatFor);
+        setActiveChat({ otherUserPrincipal: p2, otherUserProfile: null });
+      });
+  }, [openChatFor, actor]);
 
   // Real conversations from backend — filter out system DM signals
   const { data: rawConversations = [], isLoading: convosLoading } = useQuery<

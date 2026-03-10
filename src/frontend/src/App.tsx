@@ -1,7 +1,7 @@
 import { Toaster } from "@/components/ui/sonner";
 import { Zap } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BattleCountdown } from "./components/BattleCountdown";
 import { BattleInviteNotification } from "./components/BattleInviteNotification";
 import { BottomNav, type BottomNavScreen } from "./components/BottomNav";
@@ -181,6 +181,9 @@ function AppShell() {
   const [showBattleCountdown, setShowBattleCountdown] = useState(false);
   const [pendingBattleStream, setPendingBattleStream] =
     useState<LiveStream | null>(null);
+
+  // DM navigation: principalStr to open chat for
+  const [dmOpenFor, setDmOpenFor] = useState<string | null>(null);
 
   // Track where payment-settings was opened from so back button is correct
   const [paymentSettingsOrigin, setPaymentSettingsOrigin] =
@@ -453,6 +456,10 @@ function AppShell() {
             <UserProfilePage
               principalStr={viewingProfilePrincipal}
               onBack={() => setScreen("feed")}
+              onOpenDM={(principalStr) => {
+                setDmOpenFor(principalStr);
+                setScreen("inbox");
+              }}
               onNavigateToProfile={(pStr) => {
                 setViewingProfilePrincipal(pStr);
                 setScreen("user-profile");
@@ -619,7 +626,10 @@ function AppShell() {
             transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
             className="fixed inset-0 z-10 overflow-y-auto"
           >
-            <InboxPage onJoinLiveStream={handleJoinLiveFromProfile} />
+            <InboxPage
+              onJoinLiveStream={handleJoinLiveFromProfile}
+              openChatFor={dmOpenFor ?? undefined}
+            />
             <BottomNav
               activeScreen="inbox"
               onOpenCreate={() => setCreateOpen(true)}

@@ -1,8 +1,20 @@
 import { Principal } from "@icp-sdk/core/principal";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Loader2, MoreHorizontal, Play, Radio } from "lucide-react";
+import {
+  ArrowLeft,
+  Bell,
+  Loader2,
+  MoreHorizontal,
+  Play,
+  Radio,
+  Send,
+  Share2,
+  UserPlus,
+  Users,
+  X,
+} from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import type { Video } from "../backend.d";
 import {
@@ -22,6 +34,7 @@ interface UserProfilePageProps {
   onOpenFollowers?: (userId: string, displayName: string) => void;
   onOpenFollowing?: (userId: string, displayName: string) => void;
   onJoinLiveStream?: (principalStr: string, displayName: string) => void;
+  onOpenDM?: (principalStr: string) => void;
 }
 
 function formatCount(n: bigint | number): string {
@@ -56,6 +69,7 @@ export function UserProfilePage({
   onOpenFollowers,
   onOpenFollowing,
   onJoinLiveStream,
+  onOpenDM,
 }: UserProfilePageProps) {
   const { actor, isAuthenticated, userProfile } = useAuth();
   const { addFollowNotification, addFriendNotification } = useNotifications();
@@ -73,6 +87,8 @@ export function UserProfilePage({
   const [menuOpen, setMenuOpen] = useState(false);
   // Block confirmation dialog state
   const [blockConfirmOpen, setBlockConfirmOpen] = useState(false);
+  // Friends sheet state
+  const [friendsSheetOpen, setFriendsSheetOpen] = useState(false);
 
   // Parse principal
   let principal: Principal | null = null;
@@ -344,21 +360,39 @@ export function UserProfilePage({
         >
           {isLoading ? "Profile" : displayName}
         </h1>
-        {/* Three-dot more options — only for other users' profiles */}
-        {!isOwnProfile && !isLoading ? (
+        {/* Bell + Share icons on right */}
+        <div className="flex items-center gap-2">
           <button
             type="button"
-            data-ocid="user-profile.more_options_button"
-            onClick={() => setMenuOpen(true)}
+            data-ocid="user-profile.bell_button"
+            onClick={() => toast("Notifications coming soon")}
             className="w-9 h-9 rounded-full flex items-center justify-center text-white/70 hover:text-white transition-colors"
             style={{ background: "rgba(255,255,255,0.06)" }}
-            aria-label="More options"
+            aria-label="Notifications"
           >
-            <MoreHorizontal size={20} />
+            <Bell size={18} />
           </button>
-        ) : (
-          <div className="w-9" />
-        )}
+          <button
+            type="button"
+            data-ocid="user-profile.share_button"
+            onClick={() => {
+              const url = `${window.location.origin}/?profile=${principalStr}`;
+              navigator.clipboard
+                .writeText(url)
+                .then(() => {
+                  toast.success("Profile link copied!");
+                })
+                .catch(() => {
+                  toast.success("Profile link copied!");
+                });
+            }}
+            className="w-9 h-9 rounded-full flex items-center justify-center text-white/70 hover:text-white transition-colors"
+            style={{ background: "rgba(255,255,255,0.06)" }}
+            aria-label="Share profile"
+          >
+            <Share2 size={18} />
+          </button>
+        </div>
       </div>
 
       {/* Loading skeleton */}
@@ -602,6 +636,59 @@ export function UserProfilePage({
                   Join Live Stream
                 </motion.button>
               )}
+            </div>
+          )}
+
+          {/* Message / Friends / More row — shown for other users */}
+          {!isOwnProfile && isAuthenticated && (
+            <div className="flex gap-2 w-full max-w-xs mt-1">
+              <button
+                type="button"
+                data-ocid="user-profile.message_button"
+                onClick={() => {
+                  if (!isFollowing) {
+                    toast("Follow this user to send messages.");
+                  } else {
+                    onOpenDM?.(principalStr);
+                  }
+                }}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-2xl text-sm font-semibold transition-all active:scale-95"
+                style={{
+                  background: "rgba(255,255,255,0.07)",
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  color: "rgba(255,255,255,0.85)",
+                }}
+              >
+                <Send size={15} />
+                <span>Message</span>
+              </button>
+              <button
+                type="button"
+                data-ocid="user-profile.friends_button"
+                onClick={() => setFriendsSheetOpen(true)}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-2xl text-sm font-semibold transition-all active:scale-95"
+                style={{
+                  background: "rgba(255,255,255,0.07)",
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  color: "rgba(255,255,255,0.85)",
+                }}
+              >
+                <UserPlus size={15} />
+                <span>Friends</span>
+              </button>
+              <button
+                type="button"
+                data-ocid="user-profile.more_button"
+                onClick={() => setMenuOpen(true)}
+                className="w-12 flex items-center justify-center py-2.5 rounded-2xl text-sm font-semibold transition-all active:scale-95"
+                style={{
+                  background: "rgba(255,255,255,0.07)",
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  color: "rgba(255,255,255,0.85)",
+                }}
+              >
+                <MoreHorizontal size={18} />
+              </button>
             </div>
           )}
 
@@ -877,6 +964,286 @@ export function UserProfilePage({
           </>
         )}
       </AnimatePresence>
+
+      {/* Friends Sheet */}
+      <AnimatePresence>
+        {friendsSheetOpen && (
+          <>
+            {/* biome-ignore lint/a11y/useKeyWithClickEvents: backdrop dismiss */}
+            <div
+              className="fixed inset-0 z-[100]"
+              style={{ background: "rgba(0,0,0,0.75)" }}
+              onClick={() => setFriendsSheetOpen(false)}
+            />
+            <motion.div
+              data-ocid="user-profile.friends_sheet"
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+              className="fixed bottom-0 left-0 right-0 z-[110] rounded-t-3xl overflow-hidden flex flex-col"
+              style={{
+                background: "rgba(12,12,12,0.98)",
+                border: "1px solid rgba(255,255,255,0.09)",
+                backdropFilter: "blur(24px)",
+                maxHeight: "75vh",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Sheet header */}
+              <div
+                className="flex items-center justify-between px-5 pt-5 pb-4 flex-shrink-0"
+                style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+              >
+                <h3
+                  className="text-white font-bold text-lg"
+                  style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}
+                >
+                  Friends
+                </h3>
+                <button
+                  type="button"
+                  data-ocid="user-profile.friends_sheet_close_button"
+                  onClick={() => setFriendsSheetOpen(false)}
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-white/50 hover:text-white transition-colors"
+                  style={{ background: "rgba(255,255,255,0.07)" }}
+                  aria-label="Close friends list"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              {/* Sheet body */}
+              <FriendsSheetBody
+                principalStr={principalStr}
+                onOpenDM={onOpenDM}
+                isFollowing={isFollowing}
+                onClose={() => setFriendsSheetOpen(false)}
+              />
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
+  );
+}
+
+// ─── FriendsSheetBody ────────────────────────────────────────────────────────
+
+function FriendsSheetBody({
+  principalStr,
+  onOpenDM,
+  isFollowing,
+  onClose,
+}: {
+  principalStr: string;
+  onOpenDM?: (principalStr: string) => void;
+  isFollowing: boolean;
+  onClose: () => void;
+}) {
+  const { actor } = useAuth();
+
+  let principal: Principal | null = null;
+  try {
+    principal = Principal.fromText(principalStr);
+  } catch {
+    // Invalid
+  }
+
+  // Fetch followers of this profile
+  const { data: followers = [], isLoading: followersLoading } = useQuery<
+    Principal[]
+  >({
+    queryKey: ["profileFollowers", principalStr],
+    queryFn: async () => {
+      if (!actor || !principal) return [];
+      return actor.getFollowers(principal);
+    },
+    enabled: !!actor && !!principal,
+    staleTime: 30_000,
+  });
+
+  // Fetch following of this profile
+  const { data: following = [], isLoading: followingLoading } = useQuery<
+    Principal[]
+  >({
+    queryKey: ["profileFollowing", principalStr],
+    queryFn: async () => {
+      if (!actor || !principal) return [];
+      return actor.getFollowing(principal);
+    },
+    enabled: !!actor && !!principal,
+    staleTime: 30_000,
+  });
+
+  const isLoading = followersLoading || followingLoading;
+
+  // Mutual followers (friends) = principals in both lists
+  const friends = followers.filter((followerP) =>
+    following.some((followingP) => followingP.toText() === followerP.toText()),
+  );
+
+  return (
+    <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1">
+      {isLoading ? (
+        <>
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className="flex items-center gap-3 px-3 py-3.5 rounded-2xl animate-pulse"
+              style={{ background: "rgba(255,255,255,0.04)" }}
+            >
+              <div
+                className="w-11 h-11 rounded-full flex-shrink-0"
+                style={{ background: "rgba(255,255,255,0.1)" }}
+              />
+              <div className="flex-1 space-y-2">
+                <div
+                  className="h-3.5 rounded-full w-1/3"
+                  style={{ background: "rgba(255,255,255,0.1)" }}
+                />
+                <div
+                  className="h-3 rounded-full w-2/3"
+                  style={{ background: "rgba(255,255,255,0.07)" }}
+                />
+              </div>
+            </div>
+          ))}
+        </>
+      ) : friends.length === 0 ? (
+        <div
+          data-ocid="user-profile.friends.empty_state"
+          className="flex flex-col items-center justify-center py-16 text-center gap-3"
+        >
+          <div
+            className="w-14 h-14 rounded-full flex items-center justify-center"
+            style={{ background: "rgba(255,255,255,0.06)" }}
+          >
+            <Users size={24} style={{ color: "rgba(255,255,255,0.3)" }} />
+          </div>
+          <p className="text-white/40 text-sm">No friends yet</p>
+          <p className="text-white/25 text-xs max-w-[200px] leading-relaxed">
+            Friends are users who follow each other
+          </p>
+        </div>
+      ) : (
+        friends.map((friendPrincipal, i) => (
+          <FriendRow
+            key={friendPrincipal.toText()}
+            friendPrincipal={friendPrincipal}
+            index={i + 1}
+            onOpenDM={onOpenDM}
+            isFollowing={isFollowing}
+            onClose={onClose}
+          />
+        ))
+      )}
+    </div>
+  );
+}
+
+function FriendRow({
+  friendPrincipal,
+  index,
+  onOpenDM,
+  isFollowing,
+  onClose,
+}: {
+  friendPrincipal: Principal;
+  index: number;
+  onOpenDM?: (principalStr: string) => void;
+  isFollowing: boolean;
+  onClose: () => void;
+}) {
+  const { actor } = useAuth();
+  const principalText = friendPrincipal.toText();
+
+  const { data: profile = null } = useQuery({
+    queryKey: ["userProfile", principalText],
+    queryFn: async () => {
+      if (!actor) return null;
+      return actor.getUserProfile(friendPrincipal);
+    },
+    enabled: !!actor,
+    staleTime: 60_000,
+  });
+
+  const displayName = profile ? getDisplayName(profile.name) || "USER" : "USER";
+  const username = profile ? getUsername(profile.name) : "";
+  const avatarUrl = profile?.avatarUrl ?? "";
+
+  return (
+    <motion.div
+      data-ocid={`user-profile.friends.item.${index}`}
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.05, duration: 0.25 }}
+      className="flex items-center gap-3 px-3 py-3 rounded-2xl"
+      style={{ background: "rgba(255,255,255,0.04)" }}
+    >
+      {/* Avatar */}
+      <div
+        className="w-11 h-11 rounded-full flex items-center justify-center overflow-hidden flex-shrink-0"
+        style={{
+          background: avatarUrl
+            ? "transparent"
+            : "linear-gradient(135deg, #ff0050 0%, #ff6b35 100%)",
+        }}
+      >
+        {avatarUrl ? (
+          <img
+            src={avatarUrl}
+            alt={displayName}
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <span className="text-white font-bold text-sm">
+            {displayName.slice(0, 2).toUpperCase()}
+          </span>
+        )}
+      </div>
+      {/* Info */}
+      <div className="flex-1 min-w-0">
+        <p
+          className="text-white font-semibold text-sm truncate"
+          style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}
+        >
+          {displayName}
+        </p>
+        {username && (
+          <p className="text-white/40 text-xs truncate">@{username}</p>
+        )}
+        <span
+          className="inline-block mt-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold"
+          style={{
+            background: "rgba(34,197,94,0.12)",
+            color: "#22c55e",
+            border: "1px solid rgba(34,197,94,0.25)",
+          }}
+        >
+          Friends
+        </span>
+      </div>
+      {/* Message shortcut */}
+      <button
+        type="button"
+        data-ocid={`user-profile.friends.message_button.${index}`}
+        onClick={() => {
+          if (!isFollowing) {
+            toast("Follow this user to send messages.");
+          } else {
+            onOpenDM?.(principalText);
+            onClose();
+          }
+        }}
+        className="w-9 h-9 rounded-full flex items-center justify-center transition-all active:scale-95 flex-shrink-0"
+        style={{
+          background: "rgba(255,0,80,0.08)",
+          border: "1px solid rgba(255,0,80,0.2)",
+        }}
+        aria-label={`Message ${displayName}`}
+      >
+        <Send size={15} style={{ color: "#ff0050" }} />
+      </button>
+    </motion.div>
   );
 }
