@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { VerificationCodeStep } from "../components/VerificationCodeStep";
 import { useAuth } from "../context/AuthContext";
+import { signInWithApple } from "../lib/appleAuth";
+import { signInWithGoogle } from "../lib/googleAuth";
 
 interface RegisterPageProps {
   onGoToLogin: () => void;
@@ -39,6 +41,51 @@ export function RegisterPage({ onGoToLogin }: RegisterPageProps) {
   const { registerWithEmail, loginWithII } = useAuth();
   const [step, setStep] = useState<Step>("method");
   const [isIILoading, setIsIILoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [isAppleLoading, setIsAppleLoading] = useState(false);
+
+  const handleGoogleAuth = async () => {
+    setIsGoogleLoading(true);
+    try {
+      const profile = await signInWithGoogle();
+      const derivedPassword = btoa(`google:${profile.sub}`);
+      await registerWithEmail(
+        profile.name || profile.email.split("@")[0],
+        profile.email,
+        derivedPassword,
+      );
+      localStorage.setItem("ss_auth_provider", "google");
+      if (profile.picture) {
+        localStorage.setItem("ss_avatar_url", profile.picture);
+      }
+      toast.success("Signed in with Google");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Google sign-in failed";
+      toast.error(msg);
+    } finally {
+      setIsGoogleLoading(false);
+    }
+  };
+
+  const handleAppleAuth = async () => {
+    setIsAppleLoading(true);
+    try {
+      const profile = await signInWithApple();
+      const derivedPassword = btoa(`apple:${profile.sub}`);
+      await registerWithEmail(
+        profile.name || profile.email.split("@")[0],
+        profile.email,
+        derivedPassword,
+      );
+      localStorage.setItem("ss_auth_provider", "apple");
+      toast.success("Signed in with Apple");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Apple sign-in failed";
+      toast.error(msg);
+    } finally {
+      setIsAppleLoading(false);
+    }
+  };
 
   // Email form state
   const [name, setName] = useState("");
@@ -416,61 +463,47 @@ export function RegisterPage({ onGoToLogin }: RegisterPageProps) {
               <span>Continue with Email</span>
             </motion.button>
 
-            {/* Google — Coming Soon */}
-            <div className="relative">
-              <button
-                type="button"
-                disabled
-                data-ocid="register.google_button"
-                className="w-full h-14 rounded-xl font-semibold text-sm flex items-center gap-4 px-5 opacity-40 cursor-not-allowed"
-                style={{
-                  background: "rgba(255,255,255,0.05)",
-                  border: "1px solid rgba(255,255,255,0.12)",
-                  color: "rgba(255,255,255,0.7)",
-                }}
-              >
+            {/* Continue with Google */}
+            <button
+              type="button"
+              data-ocid="register.google_button"
+              onClick={handleGoogleAuth}
+              disabled={isGoogleLoading}
+              className="w-full h-14 rounded-xl font-semibold text-sm flex items-center gap-4 px-5"
+              style={{
+                background: "rgba(255,255,255,0.05)",
+                border: "1px solid rgba(255,255,255,0.12)",
+                color: "rgba(255,255,255,0.7)",
+              }}
+            >
+              {isGoogleLoading ? (
+                <Loader2 size={20} className="animate-spin" />
+              ) : (
                 <span className="text-2xl">🔵</span>
-                <span>Continue with Google</span>
-              </button>
-              <span
-                className="absolute top-2 right-3 text-xs font-bold px-2 py-0.5 rounded-full"
-                style={{
-                  background: "rgba(255,0,80,0.15)",
-                  color: "#ff0050",
-                  border: "1px solid rgba(255,0,80,0.3)",
-                }}
-              >
-                Soon
-              </span>
-            </div>
+              )}
+              <span>Continue with Google</span>
+            </button>
 
-            {/* Apple — Coming Soon */}
-            <div className="relative">
-              <button
-                type="button"
-                disabled
-                data-ocid="register.apple_button"
-                className="w-full h-14 rounded-xl font-semibold text-sm flex items-center gap-4 px-5 opacity-40 cursor-not-allowed"
-                style={{
-                  background: "rgba(255,255,255,0.05)",
-                  border: "1px solid rgba(255,255,255,0.12)",
-                  color: "rgba(255,255,255,0.7)",
-                }}
-              >
+            {/* Continue with Apple */}
+            <button
+              type="button"
+              data-ocid="register.apple_button"
+              onClick={handleAppleAuth}
+              disabled={isAppleLoading}
+              className="w-full h-14 rounded-xl font-semibold text-sm flex items-center gap-4 px-5"
+              style={{
+                background: "rgba(255,255,255,0.05)",
+                border: "1px solid rgba(255,255,255,0.12)",
+                color: "rgba(255,255,255,0.7)",
+              }}
+            >
+              {isAppleLoading ? (
+                <Loader2 size={20} className="animate-spin" />
+              ) : (
                 <span className="text-2xl">🍎</span>
-                <span>Continue with Apple</span>
-              </button>
-              <span
-                className="absolute top-2 right-3 text-xs font-bold px-2 py-0.5 rounded-full"
-                style={{
-                  background: "rgba(255,0,80,0.15)",
-                  color: "#ff0050",
-                  border: "1px solid rgba(255,0,80,0.3)",
-                }}
-              >
-                Soon
-              </span>
-            </div>
+              )}
+              <span>Continue with Apple</span>
+            </button>
           </div>
 
           <p className="text-center text-white/30 text-xs mt-8">

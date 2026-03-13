@@ -361,6 +361,30 @@ interface ActiveChat {
 
 type ActivitySheet = "followers" | "notifications" | "mentions" | null;
 
+// ─── Message Requests helpers ──────────────────────────────────────────────────
+
+type MsgRequest = {
+  principalStr: string;
+  displayName: string;
+  avatarUrl: string;
+  lastMessage: string;
+  timestamp: number;
+  status: "pending" | "accepted" | "ignored";
+};
+
+function getPendingMsgRequests(): MsgRequest[] {
+  try {
+    const raw = localStorage.getItem("ss_msg_requests");
+    if (!raw) return [];
+    return JSON.parse(raw) as MsgRequest[];
+  } catch {
+    return [];
+  }
+}
+function saveMsgRequests(reqs: MsgRequest[]) {
+  localStorage.setItem("ss_msg_requests", JSON.stringify(reqs));
+}
+
 // ─── UserAvatar component ─────────────────────────────────────────────────────
 
 function UserAvatar({
@@ -766,6 +790,7 @@ function ChatView({
   const myPrincipal = identity?.getPrincipal();
   const queryClient = useQueryClient();
   const [inputText, setInputText] = useState("");
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const principalText = otherUserPrincipal.toText();
 
@@ -997,6 +1022,51 @@ function ChatView({
         )}
       </div>
 
+      {/* Emoji Picker */}
+      {showEmojiPicker && (
+        <div
+          className="flex-shrink-0 flex flex-wrap gap-1 p-3"
+          style={{
+            background: "rgba(18,18,18,0.98)",
+            borderTop: "1px solid rgba(255,255,255,0.06)",
+          }}
+          data-ocid="chat.emoji_picker"
+        >
+          {[
+            "😀",
+            "😂",
+            "😍",
+            "🥰",
+            "😎",
+            "🤩",
+            "😭",
+            "😤",
+            "🙏",
+            "👍",
+            "❤️",
+            "🔥",
+            "💯",
+            "😘",
+            "🎉",
+            "✨",
+            "💬",
+            "🤣",
+            "😅",
+            "😇",
+          ].map((emoji) => (
+            <button
+              key={emoji}
+              type="button"
+              onClick={() => setInputText((prev) => prev + emoji)}
+              className="text-xl w-10 h-10 flex items-center justify-center rounded-xl active:scale-90 transition-transform"
+              style={{ background: "rgba(255,255,255,0.05)" }}
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Input bar */}
       <div
         className="flex-shrink-0 flex items-center gap-2 px-3 pb-8 pt-2"
@@ -1009,7 +1079,12 @@ function ChatView({
       >
         <button
           type="button"
-          className="w-9 h-9 rounded-full flex items-center justify-center text-white/40 hover:text-white/70 transition-colors flex-shrink-0"
+          data-ocid="chat.emoji_toggle"
+          onClick={() => setShowEmojiPicker((v) => !v)}
+          className="w-9 h-9 rounded-full flex items-center justify-center transition-colors flex-shrink-0"
+          style={{
+            color: showEmojiPicker ? "#ff0050" : "rgba(255,255,255,0.4)",
+          }}
           aria-label="Emoji"
         >
           <Smile size={20} />
@@ -1151,6 +1226,10 @@ export function InboxPage({
   const [activeChat, setActiveChat] = useState<ActiveChat | null>(null);
   const [activitySheet, setActivitySheet] = useState<ActivitySheet>(null);
   const [showUserPicker, setShowUserPicker] = useState(false);
+  const [msgRequestsOpen, setMsgRequestsOpen] = useState(false);
+  const [msgRequests, setMsgRequests] = useState<MsgRequest[]>(() =>
+    getPendingMsgRequests(),
+  );
 
   // Auto-open chat when navigated via DM button from profile
   const openChatForRef = useRef<string | null>(null);
@@ -1321,6 +1400,36 @@ export function InboxPage({
             ))}
           </div>
         </div>
+
+        {/* Message Requests pill */}
+        {msgRequests.filter((r) => r.status === "pending").length > 0 && (
+          <div className="px-4 pt-3">
+            <button
+              type="button"
+              data-ocid="inbox.message_requests_button"
+              onClick={() => setMsgRequestsOpen(true)}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-2xl w-full text-left transition-all active:scale-95"
+              style={{
+                background: "rgba(255,0,80,0.08)",
+                border: "1px solid rgba(255,0,80,0.25)",
+              }}
+            >
+              <MessageCircle size={18} style={{ color: "#ff0050" }} />
+              <span
+                className="flex-1 text-sm font-semibold"
+                style={{ color: "rgba(255,255,255,0.85)" }}
+              >
+                💬 Message Requests
+              </span>
+              <span
+                className="min-w-5 h-5 flex items-center justify-center rounded-full text-[11px] font-bold px-1.5"
+                style={{ background: "#ff0050", color: "white" }}
+              >
+                {msgRequests.filter((r) => r.status === "pending").length}
+              </span>
+            </button>
+          </div>
+        )}
 
         {/* Messages section */}
         <div className="px-4 pt-5">
@@ -1563,6 +1672,152 @@ export function InboxPage({
             onClose={() => setShowUserPicker(false)}
             onSelect={handleOpenChat}
           />
+        )}
+      </AnimatePresence>
+
+      {/* Message Requests Sheet */}
+      <AnimatePresence>
+        {msgRequestsOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-40"
+              style={{ background: "rgba(0,0,0,0.6)" }}
+              onClick={() => setMsgRequestsOpen(false)}
+            />
+            <motion.div
+              data-ocid="inbox.message_requests_sheet"
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 30, stiffness: 300 }}
+              className="fixed bottom-0 left-0 right-0 z-50 flex flex-col rounded-t-3xl overflow-hidden"
+              style={{ background: "#111", maxHeight: "75vh" }}
+            >
+              <div
+                className="flex items-center justify-between px-5 pt-5 pb-4 flex-shrink-0"
+                style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+              >
+                <h3
+                  className="text-white font-bold text-lg"
+                  style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}
+                >
+                  Message Requests
+                </h3>
+                <button
+                  type="button"
+                  data-ocid="inbox.message_requests_close_button"
+                  onClick={() => setMsgRequestsOpen(false)}
+                  className="w-9 h-9 rounded-full flex items-center justify-center text-white/50 hover:text-white"
+                  style={{ background: "rgba(255,255,255,0.07)" }}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                {msgRequests.filter((r) => r.status === "pending").length ===
+                0 ? (
+                  <div
+                    data-ocid="inbox.message_requests_empty_state"
+                    className="flex flex-col items-center justify-center py-16 text-center"
+                  >
+                    <MessageCircle
+                      size={32}
+                      style={{ color: "rgba(255,255,255,0.2)" }}
+                      className="mb-3"
+                    />
+                    <p className="text-white/40 text-sm">
+                      No pending message requests
+                    </p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-white/5">
+                    {msgRequests
+                      .filter((r) => r.status === "pending")
+                      .map((req, i) => (
+                        <div
+                          key={req.principalStr}
+                          data-ocid={`inbox.message_requests.item.${i + 1}`}
+                          className="flex items-center gap-3 px-5 py-4"
+                        >
+                          <div
+                            className="w-12 h-12 rounded-full flex-shrink-0 overflow-hidden flex items-center justify-center text-white font-bold text-lg"
+                            style={{ background: "rgba(255,0,80,0.15)" }}
+                          >
+                            {req.avatarUrl ? (
+                              <img
+                                src={req.avatarUrl}
+                                alt=""
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              (req.displayName || "?")[0].toUpperCase()
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-white font-semibold text-sm truncate">
+                              {req.displayName}
+                            </p>
+                            <p className="text-white/40 text-xs truncate mt-0.5">
+                              {req.lastMessage}
+                            </p>
+                          </div>
+                          <div className="flex gap-2 flex-shrink-0">
+                            <button
+                              type="button"
+                              data-ocid={`inbox.message_requests.accept_button.${i + 1}`}
+                              onClick={() => {
+                                const updated = msgRequests.map((r) =>
+                                  r.principalStr === req.principalStr
+                                    ? { ...r, status: "accepted" as const }
+                                    : r,
+                                );
+                                setMsgRequests(updated);
+                                saveMsgRequests(updated);
+                                toast.success(
+                                  `Accepted message from ${req.displayName}`,
+                                );
+                              }}
+                              className="px-3 py-1.5 rounded-xl text-xs font-bold"
+                              style={{
+                                background: "rgba(34,197,94,0.15)",
+                                color: "#22c55e",
+                                border: "1px solid rgba(34,197,94,0.3)",
+                              }}
+                            >
+                              Accept
+                            </button>
+                            <button
+                              type="button"
+                              data-ocid={`inbox.message_requests.cancel_button.${i + 1}`}
+                              onClick={() => {
+                                const updated = msgRequests.map((r) =>
+                                  r.principalStr === req.principalStr
+                                    ? { ...r, status: "ignored" as const }
+                                    : r,
+                                );
+                                setMsgRequests(updated);
+                                saveMsgRequests(updated);
+                              }}
+                              className="px-3 py-1.5 rounded-xl text-xs font-bold"
+                              style={{
+                                background: "rgba(255,255,255,0.07)",
+                                color: "rgba(255,255,255,0.5)",
+                                border: "1px solid rgba(255,255,255,0.1)",
+                              }}
+                            >
+                              Ignore
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
 

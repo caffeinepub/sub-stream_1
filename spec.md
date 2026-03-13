@@ -1,32 +1,34 @@
-# Sub Stream
+# Sub Stream — Profile Chat System
 
 ## Current State
-- AuthContext tracks `userProfile` which has an `email` field
-- SettingsPage has an "Admin Review" button visible to ALL users via `onOpenAdmin` prop
-- AdminReviewPage shows flagged content reports
-- No role-based access control exists in the frontend
-- UserRole enum (admin/user/guest) is defined in backend.d.ts but unused in frontend
-- App.tsx navigates to `screen === 'admin'` to show AdminReviewPage
+- UserProfilePage has a "Message" (Send icon) button below the Follow button, calls `onOpenDM?.(principalStr)`
+- InboxPage has a full ChatView with header, messages, input bar
+- Block system exists via `useFollowSystem` (`isBlockedByMe`, `isBlockedByThem`)
+- `actor.getConversations()` and `actor.sendMessage()` exist; no explicit `createOrGetConversation` — `sendMessage` implicitly creates/opens conversation
+- No username copy feature
+- No message request UI in InboxPage
+- App.tsx wires `onOpenDM` to set `dmOpenFor` and navigate to inbox
 
 ## Requested Changes (Diff)
 
 ### Add
-- `useIsAdmin()` hook in AuthContext that compares `userProfile.email` (lowercased) against `babucarrngum66@gmail.com` (lowercased constant)
-- `AdminDashboardPage` with four panels: Admin Dashboard overview, Video Moderation Panel, Violation Review, Content Removal
-- Role assigned at login: if email matches admin email → role = "admin", otherwise role = "user" (stored in component state/context, not hardcoded password)
-- Admin-only badge/indicator in Settings when logged in as admin
+- 💬 Chat button BESIDE the Follow button (not below) in UserProfilePage and ProfilePage
+- Username tap-to-copy on profile pages: tap/long-press @username → copy to clipboard + "Username copied" toast
+- Block guard: if blocked user tries to open chat show "You cannot message this user."
+- Message Requests tab in InboxPage with Accept/Ignore UI (frontend-only using localStorage for request state)
+- Emoji button in ChatView input bar
 
 ### Modify
-- SettingsPage: hide the entire Admin section when user is NOT admin
-- AdminReviewPage: replace with enhanced AdminDashboardPage that includes Video Moderation Panel, Violation Review, Content Removal tabs
-- App.tsx admin screen: wrap with admin guard so non-admin users who somehow navigate to admin screen see "Access Denied" message
-- AuthContext: export `isAdmin` boolean derived from email comparison
+- Move the Chat/Message button to sit inline beside the Follow button
+- ChatView: add emoji picker toggle, improve input bar
+- UserProfilePage message button: check block status before opening chat
+- InboxPage: add Message Requests section at top of conversation list
 
 ### Remove
-- Admin section visibility for non-admin users in SettingsPage
+- Separate standalone Message button row below follow button (consolidate into follow row)
 
 ## Implementation Plan
-1. Add `ADMIN_EMAIL` constant and `isAdmin` boolean to AuthContext, derived purely from `userProfile.email` comparison (no passwords)
-2. Update SettingsPage to conditionally render the Admin section only when `isAdmin === true`
-3. Replace/enhance AdminReviewPage with a tabbed AdminDashboardPage (Dashboard overview, Video Moderation, Violation Review, Content Removal)
-4. Add admin guard in App.tsx: if `effectiveScreen === 'admin'` and `!isAdmin`, show access denied instead of admin page
+1. Update UserProfilePage: add 💬 Chat icon beside Follow button; add username copy on tap; add block guard before opening DM
+2. Update ProfilePage: same username copy feature on own profile
+3. Update InboxPage/ChatView: add emoji button to input, add Message Requests section
+4. Wire block check via `isBlockedByThem` before allowing chat open

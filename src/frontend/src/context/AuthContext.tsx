@@ -28,6 +28,8 @@ const ALL_SESSION_KEYS = [
   USERNAME_KEY,
   PRINCIPAL_KEY,
   REAL_NAME_KEY,
+  "ss_auth_provider",
+  "ss_avatar_url",
 ];
 
 /** Clears every SUB STREAM session key from localStorage */
@@ -149,9 +151,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const profileFetchedRef = useRef(false);
 
-  // Determine authentication state: identity exists and is not anonymous
-  const isAuthenticated =
+  // Determine authentication state
+  const isIIAuthenticated =
     !!ii.identity && !ii.identity.getPrincipal().isAnonymous();
+  // Email/OAuth users are authenticated when they have a profile set in state
+  const isEmailAuthenticated = userProfile !== null;
+  const isAuthenticated = isIIAuthenticated || isEmailAuthenticated;
   const isInitializing = ii.isInitializing || isFetching;
 
   // needsUsername: authenticated but no username set yet
@@ -282,7 +287,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setUserProfile(profile);
       profileFetchedRef.current = true;
 
-      // New registrations need username setup — do NOT set HAS_USERNAME_KEY
+      // If the profile already has a packed username (returning user), mark as set
+      if (profile?.name?.includes("|")) {
+        localStorage.setItem(HAS_USERNAME_KEY, "1");
+      }
     },
     [actor],
   );

@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Bell,
   Loader2,
+  MessageCircle,
   MoreHorizontal,
   Play,
   Radio,
@@ -78,6 +79,7 @@ export function UserProfilePage({
   const {
     blockUser,
     isBlockedByMe,
+    isBlockedByThem,
     recordFollowTimestamp,
     removeFollowTimestamp,
     myPrincipal,
@@ -527,14 +529,35 @@ export function UserProfilePage({
             )}
           </div>
 
-          {/* Username */}
+          {/* Username — tap to copy */}
           {username && (
-            <p
-              className="text-sm mb-2"
+            <button
+              type="button"
+              data-ocid="user-profile.username_copy_button"
+              onClick={() => {
+                navigator.clipboard
+                  .writeText(`@${username}`)
+                  .then(() => {
+                    toast.success("Username copied");
+                  })
+                  .catch(() => {
+                    toast.success("Username copied");
+                  });
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                navigator.clipboard
+                  .writeText(`@${username}`)
+                  .then(() => {
+                    toast.success("Username copied");
+                  })
+                  .catch(() => {});
+              }}
+              className="text-sm mb-2 active:scale-95 transition-transform cursor-pointer select-none"
               style={{ color: "rgba(255,255,255,0.45)" }}
             >
               @{username}
-            </p>
+            </button>
           )}
 
           {/* Bio */}
@@ -583,39 +606,64 @@ export function UserProfilePage({
           {/* Follow / Unfollow button */}
           {!isOwnProfile && isAuthenticated && (
             <div className="flex flex-col items-center gap-2 w-full max-w-xs">
-              <motion.button
-                type="button"
-                data-ocid="user-profile.follow_button"
-                onClick={() => followMutation.mutate()}
-                disabled={followMutation.isPending}
-                whileTap={{ scale: 0.97 }}
-                className="w-full px-8 py-2.5 rounded-2xl font-bold text-sm transition-all disabled:opacity-70 flex items-center justify-center gap-2"
-                style={
-                  isFollowing
-                    ? {
-                        background: "transparent",
-                        border: "2px solid rgba(255,255,255,0.3)",
-                        color: "rgba(255,255,255,0.8)",
-                      }
-                    : {
-                        background:
-                          "linear-gradient(135deg, #ff0050 0%, #ff3366 100%)",
-                        border: "none",
-                        color: "white",
-                        boxShadow: "0 8px 24px rgba(255,0,80,0.35)",
-                      }
-                }
-              >
-                {followMutation.isPending ? (
-                  <Loader2 size={16} className="animate-spin" />
-                ) : isFriend ? (
-                  "Friends ✓"
-                ) : isFollowing ? (
-                  "Following"
-                ) : (
-                  "Follow"
-                )}
-              </motion.button>
+              <div className="flex items-center gap-2 w-full">
+                <motion.button
+                  type="button"
+                  data-ocid="user-profile.follow_button"
+                  onClick={() => followMutation.mutate()}
+                  disabled={followMutation.isPending}
+                  whileTap={{ scale: 0.97 }}
+                  className="flex-1 px-8 py-2.5 rounded-2xl font-bold text-sm transition-all disabled:opacity-70 flex items-center justify-center gap-2"
+                  style={
+                    isFollowing
+                      ? {
+                          background: "transparent",
+                          border: "2px solid rgba(255,255,255,0.3)",
+                          color: "rgba(255,255,255,0.8)",
+                        }
+                      : {
+                          background:
+                            "linear-gradient(135deg, #ff0050 0%, #ff3366 100%)",
+                          border: "none",
+                          color: "white",
+                          boxShadow: "0 8px 24px rgba(255,0,80,0.35)",
+                        }
+                  }
+                >
+                  {followMutation.isPending ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : isFriend ? (
+                    "Friends ✓"
+                  ) : isFollowing ? (
+                    "Following"
+                  ) : (
+                    "Follow"
+                  )}
+                </motion.button>
+
+                {/* Chat button — inline with Follow */}
+                <motion.button
+                  type="button"
+                  data-ocid="user-profile.chat_button"
+                  onClick={() => {
+                    if (isBlockedByThem(principalStr)) {
+                      toast.error("You cannot message this user.");
+                      return;
+                    }
+                    onOpenDM?.(principalStr);
+                  }}
+                  whileTap={{ scale: 0.97 }}
+                  className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-2xl font-bold text-sm transition-all"
+                  style={{
+                    background: "rgba(255,255,255,0.07)",
+                    border: "1.5px solid rgba(255,255,255,0.15)",
+                    color: "rgba(255,255,255,0.85)",
+                  }}
+                >
+                  <MessageCircle size={16} />
+                  <span>Chat</span>
+                </motion.button>
+              </div>
 
               {/* Join Live Stream button */}
               {isLive && (
@@ -648,6 +696,10 @@ export function UserProfilePage({
                 type="button"
                 data-ocid="user-profile.message_button"
                 onClick={() => {
+                  if (isBlockedByThem(principalStr)) {
+                    toast.error("You cannot message this user.");
+                    return;
+                  }
                   if (!isFollowing) {
                     toast("Follow this user to send messages.");
                   } else {

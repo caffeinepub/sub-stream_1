@@ -11,11 +11,13 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { VerificationCodeStep } from "../components/VerificationCodeStep";
 import { useAuth } from "../context/AuthContext";
+import { signInWithApple } from "../lib/appleAuth";
 import {
   getDeviceInfo,
   isKnownDevice,
   storeKnownDevice,
 } from "../lib/deviceInfo";
+import { signInWithGoogle } from "../lib/googleAuth";
 
 interface LoginPageProps {
   onGoToRegister: () => void;
@@ -37,8 +39,11 @@ function generateCode(): string {
 }
 
 export function LoginPage({ onGoToRegister }: LoginPageProps) {
-  const { loginWithII, loginWithEmail, isInitializing } = useAuth();
+  const { loginWithII, loginWithEmail, registerWithEmail, isInitializing } =
+    useAuth();
   const [tab, setTab] = useState<"email" | "phone">("email");
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [isAppleLoading, setIsAppleLoading] = useState(false);
 
   // Email login
   const [email, setEmail] = useState("");
@@ -316,6 +321,51 @@ export function LoginPage({ onGoToRegister }: LoginPageProps) {
     );
   }
 
+  const handleGoogleAuth = async () => {
+    setIsGoogleLoading(true);
+    try {
+      const profile = await signInWithGoogle();
+      const derivedPassword = btoa(`google:${profile.sub}`);
+      await registerWithEmail(
+        profile.name || profile.email.split("@")[0],
+        profile.email,
+        derivedPassword,
+      );
+      // Store provider + avatar for profile display
+      localStorage.setItem("ss_auth_provider", "google");
+      if (profile.picture) {
+        localStorage.setItem("ss_avatar_url", profile.picture);
+      }
+      toast.success("Signed in with Google");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Google sign-in failed";
+      toast.error(msg);
+    } finally {
+      setIsGoogleLoading(false);
+    }
+  };
+
+  const handleAppleAuth = async () => {
+    setIsAppleLoading(true);
+    try {
+      const profile = await signInWithApple();
+      const derivedPassword = btoa(`apple:${profile.sub}`);
+      await registerWithEmail(
+        profile.name || profile.email.split("@")[0],
+        profile.email,
+        derivedPassword,
+      );
+      // Store provider for profile display
+      localStorage.setItem("ss_auth_provider", "apple");
+      toast.success("Signed in with Apple");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Apple sign-in failed";
+      toast.error(msg);
+    } finally {
+      setIsAppleLoading(false);
+    }
+  };
+
   return (
     <div
       className="min-h-screen w-full flex flex-col items-center justify-center px-6 py-10 relative overflow-hidden"
@@ -393,26 +443,36 @@ export function LoginPage({ onGoToRegister }: LoginPageProps) {
           <button
             type="button"
             data-ocid="login.google_button"
-            onClick={() => toast.info("Google login coming soon")}
+            onClick={handleGoogleAuth}
+            disabled={isGoogleLoading}
             className="flex-1 h-11 rounded-xl text-sm font-medium text-white/70 flex items-center justify-center gap-2 transition-all"
             style={{
               background: "rgba(255,255,255,0.05)",
               border: "1px solid rgba(255,255,255,0.1)",
             }}
           >
-            🔵 Google
+            {isGoogleLoading ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <>🔵 Google</>
+            )}
           </button>
           <button
             type="button"
             data-ocid="login.apple_button"
-            onClick={() => toast.info("Apple login coming soon")}
+            onClick={handleAppleAuth}
+            disabled={isAppleLoading}
             className="flex-1 h-11 rounded-xl text-sm font-medium text-white/70 flex items-center justify-center gap-2 transition-all"
             style={{
               background: "rgba(255,255,255,0.05)",
               border: "1px solid rgba(255,255,255,0.1)",
             }}
           >
-            🍎 Apple
+            {isAppleLoading ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <>🍎 Apple</>
+            )}
           </button>
         </div>
 
