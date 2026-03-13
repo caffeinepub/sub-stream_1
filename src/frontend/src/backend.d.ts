@@ -176,6 +176,7 @@ export interface backendInterface {
     getPinnedVideos(userId: Principal): Promise<Array<Video>>;
     getStoriesByUser(userId: Principal): Promise<Array<Story>>;
     getStoryViewCount(storyId: bigint): Promise<bigint>;
+    getStoryViewers(storyId: bigint): Promise<{ principal: Principal; profile: UserProfile | null }[]>;
     getStripeSessionStatus(sessionId: string): Promise<StripeSessionStatus>;
     getUser(id: Principal): Promise<User | null>;
     getUserBookmarks(): Promise<Array<Video>>;

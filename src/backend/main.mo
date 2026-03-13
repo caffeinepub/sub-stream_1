@@ -804,6 +804,24 @@ actor {
     };
   };
 
+  public query ({ caller }) func getStoryViewers(storyId : Nat) : async [{ principal : Principal; profile : ?UserProfile }] {
+    switch (stories.get(storyId)) {
+      case (null) { [] };
+      case (?story) {
+        if (story.creator != caller) { return [] };
+        switch (storyViews.get(storyId)) {
+          case (null) { [] };
+          case (?viewerSet) {
+            viewerSet.toArray().map(func(p : Principal) : { principal : Principal; profile : ?UserProfile } {
+              { principal = p; profile = switch (users.get(p)) { case (null) { null }; case (?u) { ?userToProfile(u) } } }
+            });
+          };
+        };
+      };
+    };
+  };
+
+
   public query ({ caller }) func getUsersWithActiveStories() : async [Principal] {
     let currentTime = Time.now();
     let activeStories = stories.values().toArray().filter(

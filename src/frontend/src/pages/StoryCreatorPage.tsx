@@ -36,17 +36,20 @@ const COMMON_EMOJIS = [
 ];
 
 const MAX_VIDEO_SECONDS = 120;
+// Increased to 400MB for story video uploads
+const MAX_VIDEO_BYTES = 400 * 1024 * 1024;
+const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 
-function blobToBase64(blob: Blob): Promise<string> {
+function fileToBase64(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const result = e.target?.result;
       if (typeof result === "string") resolve(result);
-      else reject(new Error("Failed to convert blob"));
+      else reject(new Error("Failed to read file"));
     };
     reader.onerror = () => reject(new Error("FileReader error"));
-    reader.readAsDataURL(blob);
+    reader.readAsDataURL(file);
   });
 }
 
@@ -64,6 +67,10 @@ export function StoryCreatorPage({
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [isPosting, setIsPosting] = useState(false);
 
+  // Store actual file/blob refs to avoid fetch(blobURL) failures
+  const photoFileRef = useRef<File | null>(null);
+  const videoFileRef = useRef<File | null>(null);
+
   const photoInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const cameraPreviewRef = useRef<HTMLVideoElement>(null);
@@ -73,7 +80,6 @@ export function StoryCreatorPage({
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordedBlobRef = useRef<Blob | null>(null);
 
-  // Cleanup media stream on unmount
   useEffect(() => {
     return () => {
       stopStream();
@@ -83,14 +89,11 @@ export function StoryCreatorPage({
 
   function stopStream() {
     if (mediaStreamRef.current) {
-      for (const track of mediaStreamRef.current.getTracks()) {
-        track.stop();
-      }
+      for (const track of mediaStreamRef.current.getTracks()) track.stop();
       mediaStreamRef.current = null;
     }
   }
 
-  // Photo file selection
   function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -99,40 +102,53 @@ export function StoryCreatorPage({
       toast.error("Only JPG, PNG, WEBP images are supported");
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
+    if (file.size > MAX_PHOTO_BYTES) {
       toast.error("Image must be under 5MB");
       return;
     }
+    photoFileRef.current = file;
     const url = URL.createObjectURL(file);
     setPhotoPreview(url);
     e.target.value = "";
   }
 
-  // Video file selection (upload)
   function handleVideoFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const allowed = ["video/mp4", "video/quicktime", "video/webm"];
+    const allowed = [
+      "video/mp4",
+      "video/quicktime",
+      "video/webm",
+      "video/x-m4v",
+    ];
     if (!allowed.includes(file.type)) {
       toast.error("Only MP4, MOV, WEBM videos are supported");
       return;
     }
+    if (file.size > MAX_VIDEO_BYTES) {
+      toast.error("Video must be under 400MB for story upload");
+      return;
+    }
+    const objectUrl = URL.createObjectURL(file);
     const vid = document.createElement("video");
     vid.preload = "metadata";
     vid.onloadedmetadata = () => {
-      URL.revokeObjectURL(vid.src);
       if (vid.duration > MAX_VIDEO_SECONDS) {
+        URL.revokeObjectURL(objectUrl);
         toast.error("Video must be under 2 minutes");
         return;
       }
-      const url = URL.createObjectURL(file);
-      setVideoPreview(url);
+      videoFileRef.current = file;
+      setVideoPreview(objectUrl);
     };
-    vid.src = URL.createObjectURL(file);
+    vid.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      toast.error("Could not read video file. Please try a different file.");
+    };
+    vid.src = objectUrl;
     e.target.value = "";
   }
 
-  // Start camera for recording
   const startCamera = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -150,13 +166,10 @@ export function StoryCreatorPage({
     }
   }, []);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: stopStream is a stable closure that only uses refs
+  // biome-ignore lint/correctness/useExhaustiveDependencies: stopStream is stable
   useEffect(() => {
-    if (videoMode === "record") {
-      void startCamera();
-    } else {
-      stopStream();
-    }
+    if (videoMode === "record") void startCamera();
+    else stopStream();
   }, [videoMode, startCamera]);
 
   function startRecording() {
@@ -185,9 +198,7 @@ export function StoryCreatorPage({
 
     timerRef.current = setInterval(() => {
       setRecordSeconds((s) => {
-        if (s + 1 >= MAX_VIDEO_SECONDS) {
-          stopRecording();
-        }
+        if (s + 1 >= MAX_VIDEO_SECONDS) stopRecording();
         return s + 1;
       });
     }, 1000);
@@ -206,12 +217,10 @@ export function StoryCreatorPage({
     }
   }
 
-  // Add emoji to text overlay
   function addEmoji(emoji: string) {
     setTextOverlay((prev) => prev + emoji);
   }
 
-  // Determine if we can post
   const hasMedia = activeTab === "photo" ? !!photoPreview : !!videoPreview;
 
   async function handlePost() {
@@ -229,21 +238,20 @@ export function StoryCreatorPage({
       let mediaUrl = "";
       const mediaType = activeTab;
 
-      if (activeTab === "photo" && photoPreview) {
-        // photoPreview is already a blob URL — read file again if needed
-        // Actually we need the data URL; let's convert from blob URL
-        const response = await fetch(photoPreview);
-        const blob = await response.blob();
-        mediaUrl = await blobToBase64(blob);
+      if (activeTab === "photo") {
+        // Use stored File ref directly — no fetch(blobURL)
+        const file = photoFileRef.current;
+        if (!file) throw new Error("Photo file not found");
+        mediaUrl = await fileToBase64(file);
       } else if (activeTab === "video") {
-        if (videoPreview && recordedBlobRef.current) {
-          // Recorded video
-          mediaUrl = await blobToBase64(recordedBlobRef.current);
-        } else if (videoPreview) {
-          // Uploaded video — convert blob URL to base64
-          const response = await fetch(videoPreview);
-          const blob = await response.blob();
-          mediaUrl = await blobToBase64(blob);
+        if (recordedBlobRef.current) {
+          // Recorded blob — convert directly
+          mediaUrl = await fileToBase64(recordedBlobRef.current);
+        } else {
+          // Uploaded file — use stored File ref directly
+          const file = videoFileRef.current;
+          if (!file) throw new Error("Video file not found");
+          mediaUrl = await fileToBase64(file);
         }
       }
 
@@ -253,7 +261,8 @@ export function StoryCreatorPage({
       toast.success("Story posted!");
       onStoryPosted();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to post story");
+      const msg = err instanceof Error ? err.message : "Failed to post story";
+      toast.error(msg);
     } finally {
       setIsPosting(false);
     }
@@ -274,7 +283,6 @@ export function StoryCreatorPage({
       className="fixed inset-0 z-[100] flex flex-col"
       style={{ background: "#000" }}
     >
-      {/* Hidden file inputs */}
       <input
         ref={photoInputRef}
         type="file"
@@ -285,7 +293,7 @@ export function StoryCreatorPage({
       <input
         ref={videoInputRef}
         type="file"
-        accept="video/mp4,video/quicktime,video/webm"
+        accept="video/mp4,video/quicktime,video/webm,video/x-m4v"
         className="hidden"
         onChange={handleVideoFileChange}
       />
@@ -326,6 +334,8 @@ export function StoryCreatorPage({
               setVideoMode(null);
               setVideoPreview(null);
               setPhotoPreview(null);
+              photoFileRef.current = null;
+              videoFileRef.current = null;
             }}
             className="flex-1 py-2 rounded-xl text-sm font-semibold transition-all"
             style={{
@@ -342,9 +352,8 @@ export function StoryCreatorPage({
         ))}
       </div>
 
-      {/* Scrollable body */}
+      {/* Body */}
       <div className="flex-1 overflow-y-auto px-4 pt-4 pb-6 space-y-4">
-        {/* ── PHOTO TAB ── */}
         <AnimatePresence mode="wait">
           {activeTab === "photo" && (
             <motion.div
@@ -367,8 +376,7 @@ export function StoryCreatorPage({
                       <p
                         className="text-white text-2xl font-bold text-center leading-snug"
                         style={{
-                          textShadow:
-                            "0 2px 16px rgba(0,0,0,0.9), 0 0 32px rgba(0,0,0,0.7)",
+                          textShadow: "0 2px 16px rgba(0,0,0,0.9)",
                           fontFamily: "'Bricolage Grotesque', sans-serif",
                         }}
                       >
@@ -378,7 +386,10 @@ export function StoryCreatorPage({
                   )}
                   <button
                     type="button"
-                    onClick={() => setPhotoPreview(null)}
+                    onClick={() => {
+                      setPhotoPreview(null);
+                      photoFileRef.current = null;
+                    }}
                     className="absolute top-3 right-3 w-8 h-8 rounded-full flex items-center justify-center"
                     style={{ background: "rgba(0,0,0,0.6)" }}
                     aria-label="Remove photo"
@@ -418,7 +429,6 @@ export function StoryCreatorPage({
             </motion.div>
           )}
 
-          {/* ── VIDEO TAB ── */}
           {activeTab === "video" && (
             <motion.div
               key="video-tab"
@@ -428,7 +438,6 @@ export function StoryCreatorPage({
               transition={{ duration: 0.2 }}
               className="space-y-4"
             >
-              {/* Mode selector */}
               {!videoMode && !videoPreview && (
                 <div className="grid grid-cols-2 gap-3">
                   <button
@@ -467,20 +476,20 @@ export function StoryCreatorPage({
                   >
                     <div
                       className="w-12 h-12 rounded-xl flex items-center justify-center"
-                      style={{
-                        background: "rgba(255,255,255,0.1)",
-                      }}
+                      style={{ background: "rgba(255,255,255,0.1)" }}
                     >
                       <Video size={22} className="text-white" />
                     </div>
                     <span className="text-white/80 text-sm font-medium">
                       Upload
                     </span>
+                    <span className="text-white/30 text-[10px]">
+                      MP4 · MOV · max 400MB
+                    </span>
                   </button>
                 </div>
               )}
 
-              {/* Recording / camera preview */}
               {videoMode === "record" && !videoPreview && (
                 <div className="space-y-3">
                   <div className="relative rounded-2xl overflow-hidden bg-black aspect-[9/16] max-h-[55vh] w-full">
@@ -561,7 +570,6 @@ export function StoryCreatorPage({
                 </div>
               )}
 
-              {/* Video preview */}
               {videoPreview && (
                 <div className="relative rounded-2xl overflow-hidden aspect-[9/16] max-h-[55vh] w-full">
                   <video
@@ -593,6 +601,7 @@ export function StoryCreatorPage({
                       setVideoPreview(null);
                       setVideoMode(null);
                       recordedBlobRef.current = null;
+                      videoFileRef.current = null;
                     }}
                     className="absolute top-3 right-3 w-8 h-8 rounded-full flex items-center justify-center"
                     style={{ background: "rgba(0,0,0,0.6)" }}
@@ -606,7 +615,7 @@ export function StoryCreatorPage({
           )}
         </AnimatePresence>
 
-        {/* Text overlay input */}
+        {/* Text overlay */}
         <div className="space-y-2">
           <label
             htmlFor="story-text-overlay"

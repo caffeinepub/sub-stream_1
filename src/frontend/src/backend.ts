@@ -269,6 +269,7 @@ export interface backendInterface {
     getPinnedVideos(userId: Principal): Promise<Array<Video>>;
     getStoriesByUser(userId: Principal): Promise<Array<Story>>;
     getStoryViewCount(storyId: bigint): Promise<bigint>;
+    getStoryViewers(storyId: bigint): Promise<{ principal: Principal; profile: UserProfile | null }[]>;
     getStripeSessionStatus(sessionId: string): Promise<StripeSessionStatus>;
     getUser(id: Principal): Promise<User | null>;
     getUserBookmarks(): Promise<Array<Video>>;
@@ -801,6 +802,26 @@ export class Backend implements backendInterface {
         } else {
             const result = await this.actor.getStoryViewCount(arg0);
             return result;
+        }
+    }
+    async getStoryViewers(arg0: bigint): Promise<{ principal: Principal; profile: UserProfile | null }[]> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getStoryViewers(arg0);
+                return result.map((r: { principal: Principal; profile: [UserProfile] | [] }) => ({
+                    principal: r.principal,
+                    profile: r.profile.length > 0 ? r.profile[0] : null,
+                }));
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getStoryViewers(arg0);
+            return result.map((r: { principal: Principal; profile: [UserProfile] | [] }) => ({
+                principal: r.principal,
+                profile: r.profile.length > 0 ? r.profile[0] : null,
+            }));
         }
     }
     async getStripeSessionStatus(arg0: string): Promise<StripeSessionStatus> {

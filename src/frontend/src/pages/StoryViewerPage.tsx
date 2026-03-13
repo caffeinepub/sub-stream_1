@@ -1,7 +1,7 @@
-import { X } from "lucide-react";
+import { Eye, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Story } from "../backend.d";
+import type { Story, UserProfile } from "../backend.d";
 import { useAuth } from "../context/AuthContext";
 import { useVideoAspectRatio } from "../hooks/useVideoAspectRatio";
 
@@ -11,6 +11,11 @@ export interface StoryWithUser extends Story {
     username: string;
     avatarUrl: string;
   };
+}
+
+interface StoryViewer {
+  principal: string;
+  profile: UserProfile | null;
 }
 
 interface StoryViewerPageProps {
@@ -48,12 +53,15 @@ export function StoryViewerPage({
   initialStoryIndex,
   onClose,
 }: StoryViewerPageProps) {
-  const { actor } = useAuth();
+  const { actor, userProfile: myProfile } = useAuth();
   const [currentIndex, setCurrentIndex] = useState(
     Math.max(0, Math.min(initialStoryIndex, stories.length - 1)),
   );
   const [isPaused, setIsPaused] = useState(false);
   const [progress, setProgress] = useState(0); // 0–1
+  const [showViewers, setShowViewers] = useState(false);
+  const [viewers, setViewers] = useState<StoryViewer[]>([]);
+  const [viewersLoading, setViewersLoading] = useState(false);
 
   const progressRef = useRef<number>(0);
   const animFrameRef = useRef<number | null>(null);
@@ -67,6 +75,15 @@ export function StoryViewerPage({
   const { aspectClass: storyAspectClass } = useVideoAspectRatio(videoRef);
 
   const currentStory = stories[currentIndex];
+
+  // Check if the current user owns this story
+  const myPrincipal =
+    (
+      myProfile as unknown as { id?: { toText?: () => string } }
+    )?.id?.toText?.() ?? "";
+  const isMyStory = currentStory
+    ? currentStory.creator.toText() === myPrincipal
+    : false;
 
   const goToNext = useCallback(() => {
     if (currentIndex < stories.length - 1) {
@@ -103,6 +120,8 @@ export function StoryViewerPage({
     setProgress(0);
     startTimeRef.current = performance.now();
     pausedAtRef.current = 0;
+    setShowViewers(false);
+    setViewers([]);
 
     return () => {
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
@@ -177,6 +196,7 @@ export function StoryViewerPage({
   }
 
   function handleScreenTap(e: React.MouseEvent) {
+    if (showViewers) return; // Don't navigate when viewers panel is open
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const x = e.clientX - rect.left;
     const w = rect.width;
@@ -191,13 +211,44 @@ export function StoryViewerPage({
     } else {
       // Center — pause/resume
       if (isPaused) {
-        startTimeRef.current = performance.now();
-        pausedAtRef.current = progressRef.current * videoDurationRef.current;
+        startTimeRef.current = performance.now() - pausedAtRef.current;
+        pausedAtRef.current = 0;
       } else {
-        pausedAtRef.current = progressRef.current * videoDurationRef.current;
+        pausedAtRef.current =
+          performance.now() - startTimeRef.current + pausedAtRef.current;
       }
       setIsPaused((p) => !p);
     }
+  }
+
+  async function openViewers() {
+    if (!actor || !currentStory) return;
+    setShowViewers(true);
+    setIsPaused(true);
+    pausedAtRef.current =
+      performance.now() - startTimeRef.current + pausedAtRef.current;
+    setViewersLoading(true);
+    try {
+      const result = await actor.getStoryViewers(currentStory.id);
+      setViewers(
+        result.map((r) => ({
+          principal: r.principal.toText(),
+          profile: r.profile ?? null,
+        })),
+      );
+    } catch {
+      setViewers([]);
+    } finally {
+      setViewersLoading(false);
+    }
+  }
+
+  function closeViewers() {
+    setShowViewers(false);
+    // Resume
+    startTimeRef.current = performance.now() - pausedAtRef.current;
+    pausedAtRef.current = 0;
+    setIsPaused(false);
   }
 
   if (!currentStory) {
@@ -401,6 +452,27 @@ export function StoryViewerPage({
           </div>
         )}
 
+        {/* Viewers button — only show for own stories */}
+        {isMyStory && (
+          <button
+            type="button"
+            data-ocid="story_viewer.viewers_button"
+            onClick={(e) => {
+              e.stopPropagation();
+              openViewers();
+            }}
+            className="absolute bottom-10 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-4 py-2 rounded-full text-white text-sm font-semibold"
+            style={{
+              background: "rgba(0,0,0,0.55)",
+              border: "1px solid rgba(255,255,255,0.2)",
+              backdropFilter: "blur(8px)",
+            }}
+          >
+            <Eye size={15} />
+            <span>{Number(currentStory.viewerCount)} viewers</span>
+          </button>
+        )}
+
         {/* Tap zones (invisible but interactive) */}
         {/* biome-ignore lint/a11y/useKeyWithClickEvents: story tap navigation handled via touch events */}
         <div
@@ -423,7 +495,7 @@ export function StoryViewerPage({
 
         {/* Paused indicator */}
         <AnimatePresence>
-          {isPaused && (
+          {isPaused && !showViewers && (
             <motion.div
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -438,6 +510,129 @@ export function StoryViewerPage({
                   <div className="w-2 h-7 bg-white rounded-sm" />
                   <div className="w-2 h-7 bg-white rounded-sm" />
                 </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Viewers list panel */}
+        <AnimatePresence>
+          {showViewers && (
+            <motion.div
+              data-ocid="story_viewer.viewers_panel"
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 28, stiffness: 280 }}
+              className="absolute inset-x-0 bottom-0 z-40 rounded-t-3xl overflow-hidden"
+              style={{
+                background: "rgba(18,18,18,0.97)",
+                backdropFilter: "blur(20px)",
+                maxHeight: "60vh",
+                display: "flex",
+                flexDirection: "column",
+              }}
+            >
+              {/* Handle bar */}
+              <div className="flex justify-center pt-3 pb-1">
+                <div className="w-10 h-1 rounded-full bg-white/20" />
+              </div>
+
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 py-3">
+                <div className="flex items-center gap-2">
+                  <Eye size={16} className="text-white/60" />
+                  <span className="text-white font-semibold text-base">
+                    {viewersLoading
+                      ? "Loading..."
+                      : `${viewers.length} viewer${viewers.length !== 1 ? "s" : ""}`}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  data-ocid="story_viewer.viewers_close_button"
+                  onClick={closeViewers}
+                  className="w-8 h-8 flex items-center justify-center rounded-full text-white/60 hover:text-white transition-colors"
+                  style={{ background: "rgba(255,255,255,0.08)" }}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Viewers list */}
+              <div className="flex-1 overflow-y-auto pb-8">
+                {viewersLoading ? (
+                  <div className="flex flex-col gap-3 px-5 py-2">
+                    {[1, 2, 3].map((i) => (
+                      <div
+                        key={i}
+                        className="flex items-center gap-3 animate-pulse"
+                      >
+                        <div className="w-10 h-10 rounded-full bg-white/10" />
+                        <div className="flex-1">
+                          <div className="h-3 w-28 rounded bg-white/10 mb-1.5" />
+                          <div className="h-2.5 w-20 rounded bg-white/10" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : viewers.length === 0 ? (
+                  <div
+                    data-ocid="story_viewer.viewers_empty_state"
+                    className="flex flex-col items-center justify-center py-12 text-white/40"
+                  >
+                    <Eye size={32} className="mb-3 opacity-40" />
+                    <p className="text-sm">No viewers yet</p>
+                  </div>
+                ) : (
+                  <ul className="px-5 py-2 flex flex-col gap-1">
+                    {viewers.map((v, idx) => {
+                      const name = v.profile?.name ?? "Unknown";
+                      const parts = name.split("|");
+                      const displayName = parts[0] || "Unknown";
+                      const username = parts[1] || "";
+                      const avatar = v.profile?.avatarUrl ?? "";
+                      return (
+                        <li
+                          key={v.principal}
+                          data-ocid={`story_viewer.viewers_item.${idx + 1}`}
+                          className="flex items-center gap-3 py-2.5"
+                        >
+                          <div
+                            className="w-10 h-10 rounded-full flex-shrink-0 overflow-hidden flex items-center justify-center"
+                            style={{
+                              background: avatar
+                                ? "transparent"
+                                : "linear-gradient(135deg, #ff0050, #ff6b35)",
+                            }}
+                          >
+                            {avatar ? (
+                              <img
+                                src={avatar}
+                                alt={displayName}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <span className="text-white text-xs font-bold">
+                                {getInitials(displayName)}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-white text-sm font-semibold truncate leading-tight">
+                              {displayName}
+                            </p>
+                            {username && (
+                              <p className="text-white/50 text-xs truncate">
+                                @{username}
+                              </p>
+                            )}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
               </div>
             </motion.div>
           )}
