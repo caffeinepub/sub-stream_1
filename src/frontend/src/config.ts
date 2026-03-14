@@ -177,3 +177,42 @@ export async function createActorWithConfig(
     actorOptions,
   );
 }
+
+// Module-level cache for StorageClient to avoid recreating it on every upload
+let _cachedStorageClient: StorageClient | null = null;
+let _cachedConfig: Config | null = null;
+
+async function getOrCreateStorageClient(): Promise<StorageClient> {
+  if (_cachedConfig === null) {
+    _cachedConfig = await loadConfig();
+  }
+  if (_cachedStorageClient === null) {
+    const { HttpAgent } = await import("@icp-sdk/core/agent");
+    const agent = new HttpAgent({ host: _cachedConfig.backend_host });
+    if (_cachedConfig.backend_host?.includes("localhost")) {
+      await agent.fetchRootKey().catch(console.error);
+    }
+    _cachedStorageClient = new StorageClient(
+      _cachedConfig.bucket_name,
+      _cachedConfig.storage_gateway_url,
+      _cachedConfig.backend_canister_id,
+      _cachedConfig.project_id,
+      agent,
+    );
+  }
+  return _cachedStorageClient;
+}
+
+/**
+ * Upload a File using 5MB chunked streaming — never loads the full file into RAM.
+ * Returns the direct CDN URL for the uploaded file.
+ */
+export async function uploadFileToStorage(
+  file: File,
+  contentType: string,
+  onProgress?: (pct: number) => void,
+): Promise<string> {
+  const client = await getOrCreateStorageClient();
+  const { hash } = await client.putFileFromBlob(file, contentType, onProgress);
+  return client.getDirectURL(hash);
+}

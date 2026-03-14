@@ -538,6 +538,56 @@ export class StorageClient {
     return { hash: hashString };
   }
 
+  public async putFileFromBlob(
+    file: Blob,
+    contentType?: string,
+    onProgress?: (percentage: number) => void,
+  ): Promise<{ hash: string }> {
+    const LARGE_FILE_CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks
+    const LARGE_FILE_MAX_CONCURRENCY = 3;
+
+    const httpHeaders: Headers = {
+      "Content-Type": "application/json",
+    };
+    const fileHeaders: Headers = {
+      "Content-Type": contentType ?? "application/octet-stream",
+      "Content-Length": file.size.toString(),
+    };
+
+    // Use 5MB chunks — createFileChunks uses file.slice() which is lazy (no RAM spike)
+    const chunks = this.createFileChunks(file, LARGE_FILE_CHUNK_SIZE);
+    const chunkHashes: YHash[] = [];
+    for (let i = 0; i < chunks.length; i++) {
+      // Only read one 5MB chunk at a time — never the full file
+      const chunkData = new Uint8Array(await chunks[i].arrayBuffer());
+      const hash = await YHash.fromChunk(chunkData);
+      chunkHashes.push(hash);
+    }
+    const blobHashTree = await BlobHashTree.build(chunkHashes, fileHeaders);
+    const blobRootHash = blobHashTree.tree.hash;
+    const hashString = blobRootHash.toShaString();
+
+    const certificateBytes = await this.getCertificate(hashString);
+
+    await this.storageGatewayClient.uploadBlobTree(
+      blobHashTree,
+      this.bucket,
+      file.size,
+      this.backendCanisterId,
+      this.projectId,
+      certificateBytes,
+    );
+    await this.parallelUpload(
+      chunks,
+      chunkHashes,
+      blobRootHash,
+      httpHeaders,
+      onProgress,
+      LARGE_FILE_MAX_CONCURRENCY,
+    );
+    return { hash: hashString };
+  }
+
   public async getDirectURL(hash: string): Promise<string> {
     if (!hash) {
       throw new Error("Hash must not be empty");
@@ -571,6 +621,7 @@ export class StorageClient {
     blobRootHash: YHash,
     httpHeaders: Headers,
     onProgress: ((percentage: number) => void) | undefined,
+    maxConcurrency: number = MAXIMUM_CONCURRENT_UPLOADS,
   ): Promise<void> {
     let completedChunks = 0;
     const uploadSingleChunk = async (index: number): Promise<void> => {
@@ -597,18 +648,11 @@ export class StorageClient {
       }
     };
     await Promise.all(
-      Array.from(
-        { length: MAXIMUM_CONCURRENT_UPLOADS },
-        async (_, workerId) => {
-          for (
-            let i = workerId;
-            i < chunks.length;
-            i += MAXIMUM_CONCURRENT_UPLOADS
-          ) {
-            await uploadSingleChunk(i);
-          }
-        },
-      ),
+      Array.from({ length: maxConcurrency }, async (_, workerId) => {
+        for (let i = workerId; i < chunks.length; i += maxConcurrency) {
+          await uploadSingleChunk(i);
+        }
+      }),
     );
   }
 

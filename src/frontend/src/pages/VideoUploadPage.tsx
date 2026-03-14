@@ -12,6 +12,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ExternalBlob } from "../backend";
+import { uploadFileToStorage } from "../config";
 import { useAuth } from "../context/AuthContext";
 
 interface VideoUploadPageProps {
@@ -183,6 +184,11 @@ export function VideoUploadPage({ onBack, onUploaded }: VideoUploadPageProps) {
 
   // ── Media select ───────────────────────────────────────────────────────────
   const handleMediaSelect = useCallback((file: File) => {
+    const MAX_VIDEO_SIZE = 5 * 1024 * 1024 * 1024; // 5GB
+    if (!file.type.startsWith("image/") && file.size > MAX_VIDEO_SIZE) {
+      toast.error("File too large. Maximum size is 5GB.");
+      return;
+    }
     const url = URL.createObjectURL(file);
     setMediaFile(file);
     setMediaPreviewUrl(url);
@@ -340,20 +346,12 @@ export function VideoUploadPage({ onBack, onUploaded }: VideoUploadPageProps) {
     setUploadStage("media");
 
     try {
-      // 1. Upload media file (video or photo)
-      const mediaBytes = new Uint8Array(await mediaFile.arrayBuffer());
-      const mediaBlob = ExternalBlob.fromBytes(mediaBytes).withUploadProgress(
-        (pct) => {
-          setUploadProgress(Math.round(pct));
-        },
-      );
-      const mediaMeta = await actor.uploadFile(
-        mediaFile.name,
+      // 1. Upload media file (video or photo) — streamed in 5MB chunks, never loads full file into RAM
+      const mediaUrl = await uploadFileToStorage(
+        mediaFile,
         mediaFile.type,
-        BigInt(mediaFile.size),
-        mediaBlob,
+        (pct) => setUploadProgress(Math.round(pct)),
       );
-      const mediaUrl = mediaMeta.externalBlob.getDirectURL();
 
       // 2. Upload thumbnail if selected (video mode)
       let thumbnailUrl = "";
