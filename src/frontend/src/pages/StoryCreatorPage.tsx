@@ -2,6 +2,7 @@ import { Camera, Loader2, StopCircle, Upload, Video, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { ExternalBlob } from "../backend";
 import { useAuth } from "../context/AuthContext";
 
 interface StoryCreatorPageProps {
@@ -40,19 +41,6 @@ const MAX_VIDEO_SECONDS = 120;
 const MAX_VIDEO_BYTES = 400 * 1024 * 1024;
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 
-function fileToBase64(file: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const result = e.target?.result;
-      if (typeof result === "string") resolve(result);
-      else reject(new Error("Failed to read file"));
-    };
-    reader.onerror = () => reject(new Error("FileReader error"));
-    reader.readAsDataURL(file);
-  });
-}
-
 export function StoryCreatorPage({
   onClose,
   onStoryPosted,
@@ -66,6 +54,10 @@ export function StoryCreatorPage({
   const [isRecording, setIsRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [isPosting, setIsPosting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadStage, setUploadStage] = useState<"uploading" | "saving" | null>(
+    null,
+  );
 
   // Store actual file/blob refs to avoid fetch(blobURL) failures
   const photoFileRef = useRef<File | null>(null);
@@ -141,9 +133,11 @@ export function StoryCreatorPage({
       videoFileRef.current = file;
       setVideoPreview(objectUrl);
     };
+    // Some browsers trigger onerror on valid files due to codec issues.
+    // Still allow the file to be set so the user can post.
     vid.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      toast.error("Could not read video file. Please try a different file.");
+      videoFileRef.current = file;
+      setVideoPreview(URL.createObjectURL(file));
     };
     vid.src = objectUrl;
     e.target.value = "";
@@ -234,29 +228,58 @@ export function StoryCreatorPage({
     }
 
     setIsPosting(true);
+    setUploadProgress(0);
+    setUploadStage("uploading");
     try {
       let mediaUrl = "";
       const mediaType = activeTab;
 
       if (activeTab === "photo") {
-        // Use stored File ref directly — no fetch(blobURL)
         const file = photoFileRef.current;
         if (!file) throw new Error("Photo file not found");
-        mediaUrl = await fileToBase64(file);
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const externalBlob = ExternalBlob.fromBytes(bytes).withUploadProgress(
+          (pct) => {
+            setUploadProgress(Math.round(pct));
+          },
+        );
+        const meta = await actor.uploadFile(
+          file.name,
+          file.type,
+          BigInt(file.size),
+          externalBlob,
+        );
+        mediaUrl = meta.externalBlob.getDirectURL();
       } else if (activeTab === "video") {
+        let file: File;
         if (recordedBlobRef.current) {
-          // Recorded blob — convert directly
-          mediaUrl = await fileToBase64(recordedBlobRef.current);
+          // Recorded blob — wrap as a File
+          file = new File([recordedBlobRef.current], "story.webm", {
+            type: "video/webm",
+          });
         } else {
-          // Uploaded file — use stored File ref directly
-          const file = videoFileRef.current;
-          if (!file) throw new Error("Video file not found");
-          mediaUrl = await fileToBase64(file);
+          const f = videoFileRef.current;
+          if (!f) throw new Error("Video file not found");
+          file = f;
         }
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const externalBlob = ExternalBlob.fromBytes(bytes).withUploadProgress(
+          (pct) => {
+            setUploadProgress(Math.round(pct));
+          },
+        );
+        const meta = await actor.uploadFile(
+          file.name,
+          file.type,
+          BigInt(file.size),
+          externalBlob,
+        );
+        mediaUrl = meta.externalBlob.getDirectURL();
       }
 
-      if (!mediaUrl) throw new Error("Failed to process media");
+      if (!mediaUrl) throw new Error("Failed to upload media");
 
+      setUploadStage("saving");
       await actor.addStory(mediaUrl, mediaType, textOverlay.trim());
       toast.success("Story posted!");
       onStoryPosted();
@@ -265,6 +288,8 @@ export function StoryCreatorPage({
       toast.error(msg);
     } finally {
       setIsPosting(false);
+      setUploadStage(null);
+      setUploadProgress(0);
     }
   }
 
@@ -668,6 +693,26 @@ export function StoryCreatorPage({
         className="px-4 pb-8 pt-3"
         style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
       >
+        {/* Upload progress bar */}
+        {isPosting && uploadStage === "uploading" && (
+          <div className="mb-3 space-y-1">
+            <div
+              className="w-full h-1.5 rounded-full overflow-hidden"
+              style={{ background: "rgba(255,255,255,0.1)" }}
+            >
+              <div
+                className="h-full rounded-full transition-all duration-300"
+                style={{
+                  width: `${uploadProgress}%`,
+                  background: "linear-gradient(90deg, #ff0050, #ff6b35)",
+                }}
+              />
+            </div>
+            <p className="text-white/50 text-xs text-center">
+              {uploadProgress}%
+            </p>
+          </div>
+        )}
         <button
           type="button"
           data-ocid="story_creator.post_button"
@@ -684,7 +729,9 @@ export function StoryCreatorPage({
           {isPosting ? (
             <>
               <Loader2 size={20} className="animate-spin" />
-              Posting…
+              {uploadStage === "uploading"
+                ? `Uploading ${uploadProgress}%…`
+                : "Saving…"}
             </>
           ) : (
             "Post Story"
